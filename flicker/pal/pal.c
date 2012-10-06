@@ -147,67 +147,6 @@ void gdt_debug(void) {
     printk("SLB/MLE size: %08x\n", *((unsigned short*)(2))); /* grabs from SLB header */
 }
 
-#define HOWMANYPTRS 12
-#define MAXALLOC (30*1024)
-int stress_malloc_internal(void)
-{
-    int i, j, rv;
-    unsigned int size, got = sizeof(size);
-    char *ptrs[HOWMANYPTRS];
-
-    for(i=0; i<HOWMANYPTRS; i++) ptrs[i] = NULL;
-
-    printk("Hello from stress_malloc()\n");
-    for(i=0; i<HOWMANYPTRS; i++) {
-        printk("malloc stress iteration %d\n", i);
-        if(TPM_SUCCESS != (rv = tpm_get_random(2, (uint8_t*)&size, &got)) ||
-           got != sizeof(size)) {
-            printk("FATAL ERROR: tpm_get_random failed with rv %d, got %d\n", rv, got);
-            return -1;
-        }
-        size %= MAXALLOC;
-        printk("  allocating %d bytes..\n", size);
-        ptrs[i] = malloc(size);
-        if(NULL != ptrs[i]) {
-            for(j=0; j<size; j++) {
-                ptrs[i][j] = j; /* touch every location */
-            }
-        } else {
-            printk("  ALLOCATION FAILED! malloc() returned NULL\n");
-        }
-    }
-
-    for(i=0; i<HOWMANYPTRS; i++) {
-        printk("Freeing ptrs[%d] (%s)\n", i, ptrs[i] ? "NON-NULL" : "NULL");
-        free(ptrs[i]);
-    }
-    return 0;
-}
-
-void stress_malloc(void) {
-    int i;
-    for(i=0; i<10; i++) {
-        printk("************************************* %d\n", i);
-        stress_malloc_internal();
-    }
-}
-
-/**
- * Code below here is in section .text.slb.  It is part of the actual
- * SLB / MLE that is measured directly by SKINIT /
- * GETSEC[SENTER]. Code not in section .text.slb is measured in
- * software by function hash_trick().
- */
-
-int pal_main(void) __attribute__ ((section (".text.slb")));
-int pal_main(void)
-{
-    printk("Hello from pal_main()\n");
-    stress_malloc();
-
-    return 0;
-}
-
 
 /* The "hash trick" measures and then extends a PCR with the
  * measurement of the "upper" portion of the PAL.  When the PAL is too
@@ -400,6 +339,7 @@ int slb_dowork(uint32_t params) {
     unsigned int base = slb_base_phys();
     int locality = 2;
     void *resume_pts = NULL;
+    extern int pal_main(void);
 
     slb_out_string("entered slb_dowork");
 

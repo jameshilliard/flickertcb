@@ -22,7 +22,7 @@ CFLAGS += -fno-stack-protector
 
 CFLAGS += -DnotPERFCRIT
 CFLAGS += -DSERIAL_BASE_OVERRIDE=0x5050
-CFLAGS += -DMIN_LOG_LEVEL=1
+CFLAGS += -DMIN_LOG_LEVEL=2
 
 AFLAGS += -D__ASSEMBLY__
 
@@ -44,7 +44,7 @@ OBJS := $(S_SRCS:.S=.o) $(C_SRCS:.c=.o)
 
 BUILD_DEPS := $(CURDIR)/Makefile
 
-all: $(TARGET).bin
+all: $(OBJS)
 
 $(TARGET).elf: $(OBJS) $(TARGET_LDS)
 	$(LD) $(LDFLAGS) -T $(TARGET_LDS) -N $(OBJS) $(GCC_LIBS) \
