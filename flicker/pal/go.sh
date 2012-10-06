@@ -79,7 +79,7 @@ cat $SYSFSPATH/data | hd
 # module. Otherwise it is better to only install the module once.
 #rmmod flicker
 
-PCRS=`find /sys -name pcrs`
+PCRS=`find /sys -name pcrs 2>/dev/null || true`
 if [ ! -z $PCRS ]
   then
   echo PCRs found at $PCRS

@@ -231,7 +231,7 @@ struct bin_attribute bin_attr_##_name = { \
         .write = _name##_write, \
 }
 
-FLICKER_BIN_ATTR(data, 0600); /* Read-Write */
+FLICKER_BIN_ATTR(data, 0666); /* Read-Write */
 
 static struct bin_attribute *flicker_bin_attrs[] = {
         &bin_attr_data,
@@ -243,7 +243,7 @@ static struct bin_attribute *flicker_bin_attrs[] = {
 /* Generate sysfs_attr_flicker */
 static struct kobj_attribute attr_control =
 __ATTR(control,
-       0600,
+       0666,
        control_show,
        control_store);
 
