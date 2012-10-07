@@ -1,4 +1,5 @@
-/* bitcoin.h - definitions for bitcoin.c
+/*
+ * cbcmode.c: implement aes cbc mode
  *
  * Copyright (C) 2006-2011 Jonathan M. McCune
  * All rights reserved.
@@ -23,37 +24,45 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  */
 
-#ifndef _BITCOIN_H_
-#define _BITCOIN_H_
+#include "aes.h"
+#include "cbcmode.h"
 
-enum {
-    tag_cmd = 0x40000000,
-    tag_rslt,
-    tag_blob,
-    tag_interval,
-    tag_key,
-    tag_delay,
-    tag_iv,
-    tag_plaintext,
-    tag_ciphertext,
-};
-
-enum {
-    cmd_init,
-    cmd_encrypt_key,
-    cmd_decrypt_key,
-};
-
-enum {
-    rslt_ok,
-    rslt_fail,
-    rslt_badparams,
-    rslt_disallowed,
-    rslt_inconsistentstate,
-};
+static unsigned char tbuf[N_BLOCK];
+static unsigned char okey[2*N_BLOCK];
 
 
-#endif /* _BITCOIN_H_ */
+static void xor_block(unsigned char *out, const unsigned char *in1, const unsigned char *in2)
+{
+    int n = N_BLOCK;
+    while (n--)
+        *out++ = *in1++ ^ *in2++;
+}
+
+void aes_cbc_encrypt(unsigned char *out, const unsigned char *in, int blocks, 
+       const unsigned char *iv,  const unsigned char *key)
+{
+    while (blocks--) {
+        xor_block(tbuf, in, iv);
+        aes_encrypt_256(tbuf, out, key, okey);
+        iv = out;
+        out += N_BLOCK;
+        in += N_BLOCK;
+    }
+}
+
+void aes_cbc_decrypt(unsigned char *out, const unsigned char *in, int blocks, 
+       const unsigned char *iv,  const unsigned char *key)
+{
+    while (blocks--) {
+        aes_decrypt_256(in, out, key, okey);
+        xor_block(out, out, iv);
+        iv = in;
+        out += N_BLOCK;
+        in += N_BLOCK;
+    }
+}
+
+
 
 /*
  * Local variables:

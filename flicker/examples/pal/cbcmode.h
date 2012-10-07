@@ -1,4 +1,4 @@
-/* bitcoin.h - definitions for bitcoin.c
+/* cbcmode.h - definitions for cbcmode.c
  *
  * Copyright (C) 2006-2011 Jonathan M. McCune
  * All rights reserved.
@@ -23,37 +23,16 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  */
 
-#ifndef _BITCOIN_H_
-#define _BITCOIN_H_
+#ifndef _CBCMODE_H_
+#define _CBCMODE_H_
 
-enum {
-    tag_cmd = 0x40000000,
-    tag_rslt,
-    tag_blob,
-    tag_interval,
-    tag_key,
-    tag_delay,
-    tag_iv,
-    tag_plaintext,
-    tag_ciphertext,
-};
+void aes_cbc_encrypt(unsigned char *out, const unsigned char *in, int blocks, 
+       const unsigned char *iv,  const unsigned char *key);
 
-enum {
-    cmd_init,
-    cmd_encrypt_key,
-    cmd_decrypt_key,
-};
+void aes_cbc_decrypt(unsigned char *out, const unsigned char *in, int blocks, 
+       const unsigned char *iv,  const unsigned char *key);
 
-enum {
-    rslt_ok,
-    rslt_fail,
-    rslt_badparams,
-    rslt_disallowed,
-    rslt_inconsistentstate,
-};
-
-
-#endif /* _BITCOIN_H_ */
+#endif /* _CBCMODE_H_ */
 
 /*
  * Local variables:

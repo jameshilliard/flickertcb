@@ -61,7 +61,7 @@ rlimit.elf: $(PAL_OBJS) $(LINKFILE) $(RLIMIT_OBJS)
 	$(LD) $(LDFLAGS) -T $(LINKFILE) -N $(PAL_OBJS) $(RLIMIT_OBJS) $(GCC_LIBS) \
 	    -o $(@D)/$(@F)
 
-BITCOIN_OBJS := bitcoin.o aes.o
+BITCOIN_OBJS := bitcoin.o aes.o cbcmode.o
 bitcoin.elf: $(PAL_OBJS) $(LINKFILE) $(BITCOIN_OBJS)
 	$(LD) $(LDFLAGS) -T $(LINKFILE) -N $(PAL_OBJS) $(BITCOIN_OBJS) $(GCC_LIBS) \
 	    -o $(@D)/$(@F)
