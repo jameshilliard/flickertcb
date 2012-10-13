@@ -32,15 +32,17 @@
 
 #define SINIT_FILE      "/boot/sinit-current.bin"
 #define PAL_FILE        "../pal/bitcoin.bin"
-#define BLOB_FILE       "rlimit.blob"
-#define BLOB_BAK_FILE   "rlimit.blob.bak"
+#define BLOB_FILE       "bitcoin.blob"
+#define BLOB_BAK_FILE   "bitcoin.blob.bak"
 
 /* forward references */
 static void print_output(void);
 static int handle_results(void);
 static int do_init(int secs, unsigned char *key);
-static int do_run(void);
+static int do_encrypt(unsigned char *iv, unsigned char *ptext, int ptextlen);
+static int do_decrypt(unsigned char *iv, unsigned char *ctext, int ctextlen);
 static void userr(char *name);
+static int scan_hex(char *s, unsigned char *buf);
 
 
 int main(int ac, char **av)
@@ -64,15 +66,37 @@ int main(int ac, char **av)
         hexkey = av[3];
         if (strlen(hexkey) != 64)
             userr(av[0]);
-        for (i=0; i<sizeof(key); i++) {
-            if (sscanf(hexkey+2*i, "%2hhx", key+i) != 1)
-                userr(av[0]);
-        }
+        if(scan_hex(hexkey, key) < 0)
+            userr(av[0]);
         if ((rslt = do_init(secs, key)) < 0)
             return -rslt;
-    } else if (strcmp(av[1], "run") == 0) {
-        if ((rslt = do_run()) < 0)
-            return -rslt;
+    } else if (strcmp(av[1], "encrypt") == 0
+            || strcmp(av[1], "decrypt") == 0) {
+        char *hexiv;
+        char *hextext;
+        int textlen;
+        unsigned char iv[16];
+        unsigned char *text;
+
+        if (ac != 4)
+            userr(av[0]);
+        hexiv = av[2];
+        hextext = av[3];
+        if (strlen(hexiv) != 32)
+            userr(av[0]);
+        if(scan_hex(hexiv, iv) < 0)
+            userr(av[0]);
+        textlen = strlen(hextext)/2;
+        text = malloc(textlen);
+        if(scan_hex(hextext, text) < 0)
+            userr(av[0]);
+        if (strcmp(av[1], "encrypt") == 0) {
+            if ((rslt = do_encrypt(iv, text, textlen)) < 0)
+                return -rslt;
+        } else {
+            if ((rslt = do_decrypt(iv, text, textlen)) < 0)
+                return -rslt;
+        }
     } else {
         userr(av[0]);
     }
@@ -93,8 +117,21 @@ int main(int ac, char **av)
 static void userr(char *name)
 {
     fprintf(stderr,
-            "Usage: %s [init <interval_secs> <64-char-key> | run]\n", PAL_FILE);
+            "Usage: %s [init <interval_secs> <64-char-key>\n"
+            "\t| encrypt <32-char-iv> <plaintext>\n"
+            "\t| decrypt <32-char-iv> <ciphertext>]\n", PAL_FILE);
     exit(1);
+}
+
+static int scan_hex(char *s, unsigned char *buf)
+{
+    int i, len=strlen(s)/2;
+
+    for (i=0; i<len; i++) {
+        if (sscanf(s+2*i, "%2hhx", buf+i) != 1)
+            return -1;
+    }
+    return 0;
 }
 
 static void print_output()
@@ -126,14 +163,12 @@ static int do_init(int secs, unsigned char *key)
     return 0;
 }
 
-static int do_run()
+static int do_encrypt(unsigned char *iv, unsigned char *ptext, int ptextlen)
 {
-    int cmd = cmd_work;
+    int cmd = cmd_encrypt;
     FILE *blobfile;
     int blobsize;
     unsigned char blob[512];
-
-    pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
 
     if ((blobfile = fopen(BLOB_FILE, "rb")) == NULL) {
         fprintf(stderr, "unable to open blob file %s\n", BLOB_FILE);
@@ -148,6 +183,39 @@ static int do_run()
     fclose(blobfile);
 
     pm_append(tag_blob, (char *)blob, blobsize);
+
+    pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
+    pm_append(tag_iv, (char *)iv, 16);
+    pm_append(tag_plaintext, (char *)ptext, ptextlen);
+
+    return 0;
+}
+
+static int do_decrypt(unsigned char *iv, unsigned char *ctext, int ctextlen)
+{
+    int cmd = cmd_decrypt;
+    FILE *blobfile;
+    int blobsize;
+    unsigned char blob[512];
+
+    if ((blobfile = fopen(BLOB_FILE, "rb")) == NULL) {
+        fprintf(stderr, "unable to open blob file %s\n", BLOB_FILE);
+        return -1;
+    }
+
+    if ((blobsize = fread(blob, 1, sizeof(blob), blobfile)) == sizeof(blob)) {
+        fprintf(stderr, "blob file too large\n");
+        return -1;
+    }
+
+    fclose(blobfile);
+
+    pm_append(tag_blob, (char *)blob, blobsize);
+
+    pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
+    pm_append(tag_iv, (char *)iv, 16);
+    pm_append(tag_ciphertext, (char *)ctext, ctextlen);
+
     return 0;
 }
 
@@ -156,6 +224,7 @@ static int handle_results()
     char *outptr;
     FILE *blobfile;
     int blobsize;
+    int ptextlen, ctextlen;
 
     if (pm_get_addr(tag_rslt, &outptr) < 0) {
         fprintf(stderr, "no result from pal\n");
@@ -164,8 +233,24 @@ static int handle_results()
 
     printf("result code from pal: %d\n", *(int *)outptr);
 
+    ptextlen = pm_get_addr(tag_plaintext, &outptr);
+    ctextlen = pm_get_addr(tag_ciphertext, &outptr);
+ 
+    if (ptextlen > 0)
+        printf("plaintext:\n");
+ 
+    if (ctextlen > 0)
+        printf("ciphertext:\n");
+
+    if (ptextlen > 0 || ctextlen > 0) {
+        int i;
+        for (i=0; i<((ctextlen>0)?ctextlen:ptextlen); i++)
+            printf("%02x", ((unsigned char *)outptr)[i]);
+        printf("\n");
+    }
+
     if ((blobsize = pm_get_addr(tag_blob, &outptr)) < 0)
-        return;
+        return 0;
 
     rename(BLOB_FILE, BLOB_BAK_FILE);
 
@@ -180,6 +265,7 @@ static int handle_results()
     }
 
     fclose(blobfile);
+
     return 0;
 }
 

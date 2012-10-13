@@ -40,8 +40,8 @@ enum {
 
 enum {
     cmd_init,
-    cmd_encrypt_key,
-    cmd_decrypt_key,
+    cmd_encrypt,
+    cmd_decrypt,
 };
 
 enum {
