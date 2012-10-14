@@ -35,22 +35,27 @@
 #include "cbcmode.h"
 #include "bitcoin.h"
 
-#define     NMEM    2
+#define     NMEM    5
 
 struct state {
+    uint8_t state2_hash[SHA_DIGEST_LENGTH];
+    uint8_t state2_key[2*N_BLOCK];
+    uint8_t state2_dkey[2*N_BLOCK];
+uint8_t state2[0];
     uint64_t current_ticks;
     tpm_nonce_t tick_nonce;
     int interval_secs;
     uint32_t counter;
-    unsigned char key[32];
-    unsigned char dkey[32];
-    unsigned char ct_mem[NMEM][SHA_DIGEST_LENGTH];
+    uint8_t key[2*N_BLOCK];
+    uint8_t dkey[2*N_BLOCK];
+    uint8_t ct_mem[NMEM][SHA_DIGEST_LENGTH];
+    uint8_t pad[N_BLOCK];
 };
 
 static int do_init_cmd(int cmd);
 static int do_encrypt(int cmd);
 static int do_decrypt(int cmd);
-static void dumphex(unsigned char *bytes, int len);
+static void dumphex(uint8_t *bytes, int len);
 static int state_seal(struct state *pstate);
 static int state_unseal(struct state *pstate);
 
@@ -92,7 +97,7 @@ rslt:
 
 static struct state state;
 
-static uint8_t blob[600];
+static uint8_t blob[400], blob2[sizeof(struct state)];
 
 static const tpm_authdata_t ctr_authdata =
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -104,7 +109,8 @@ static int do_init_cmd(int cmd)
     tpm_counter_value_t counter;
     char *inptr;
     int inlen;
-    unsigned char inblk[16], outblk[16];
+    uint8_t inblk[N_BLOCK], outblk[N_BLOCK];
+    uint32_t keysize;
     int rslt;
 
     if ((inlen=pm_get_addr(tag_key, &inptr)) < 0) {
@@ -118,9 +124,20 @@ static int do_init_cmd(int cmd)
     }
 
     memcpy(state.key, inptr, sizeof(state.key));
-
     /* dummy encryption to get the decrypt key */
     aes_encrypt_256(inblk, outblk, state.key, state.dkey);
+
+    keysize = sizeof(state.state2_key);
+    if (tpm_get_random(2, state.state2_key, &keysize) != 0
+            || keysize != sizeof(state.state2_key)) {
+        log_event(LOG_LEVEL_ERROR, "error: get_random failed\n");
+        return rslt_fail;
+    }
+    aes_encrypt_256(inblk, outblk, state.state2_key, state.state2_dkey);
+
+    /* iv */
+    keysize = N_BLOCK;
+    tpm_get_random(2, blob2, &keysize);
 
     if (pm_get_addr(tag_interval, &inptr) < 0) {
         log_event(LOG_LEVEL_ERROR, "error: no interval\n");
@@ -142,7 +159,7 @@ static int do_init_cmd(int cmd)
 }
 
 
-static unsigned char padded[3*N_BLOCK], obuf[3*N_BLOCK];
+static uint8_t padded[3*N_BLOCK], obuf[3*N_BLOCK];
 
 static int do_encrypt(int cmd)
 {
@@ -150,8 +167,8 @@ static int do_encrypt(int cmd)
     char *inptr;
     int rslt = rslt_ok;
     int inlen;
-    unsigned char *iv;
-    unsigned char *ptxt;
+    uint8_t *iv;
+    uint8_t *ptxt;
     int padlen;
 
     if ((rslt = state_unseal(&state)) != rslt_ok)
@@ -174,7 +191,7 @@ static int do_encrypt(int cmd)
         return rslt_badparams;
     }
 
-    iv = (unsigned char *)inptr;
+    iv = (uint8_t *)inptr;
 
     if ((inlen=pm_get_addr(tag_plaintext, &inptr)) < 0) {
         log_event(LOG_LEVEL_ERROR, "error: no plaintext\n");
@@ -186,7 +203,7 @@ static int do_encrypt(int cmd)
         return rslt_badparams;
     }
 
-    ptxt = (unsigned char *)inptr;
+    ptxt = (uint8_t *)inptr;
 
     padlen = N_BLOCK - (inlen % N_BLOCK);
     memcpy(padded, ptxt, inlen);
@@ -207,12 +224,12 @@ static int do_decrypt(int cmd)
     int interval_secs;
     int rslt = rslt_ok;
     int inlen;
-    unsigned char *iv;
-    unsigned char *ctxt;
+    uint8_t *iv;
+    uint8_t *ctxt;
     int padlen;
     int i;
     int duplicate = false;
-    unsigned char md[SHA_DIGEST_LENGTH];
+    uint8_t md[SHA_DIGEST_LENGTH];
 
     if ((rslt = state_unseal(&state)) != rslt_ok)
         return rslt;
@@ -234,7 +251,7 @@ static int do_decrypt(int cmd)
         return rslt_badparams;
     }
 
-    iv = (unsigned char *)inptr;
+    iv = (uint8_t *)inptr;
 
     if ((inlen=pm_get_addr(tag_ciphertext, &inptr)) < 0) {
         log_event(LOG_LEVEL_ERROR, "error: no ciphertext\n");
@@ -246,7 +263,7 @@ static int do_decrypt(int cmd)
         return rslt_badparams;
     }
 
-    ctxt = (unsigned char *)inptr;
+    ctxt = (uint8_t *)inptr;
 
     sha1_buffer(ctxt, inlen, md);
 
@@ -318,34 +335,133 @@ static int do_decrypt(int cmd)
 }
 
 
+static int state_seal(struct state *pstate)
+{
+    uint8_t pcrs[3] = {17, 18, 19};
+    tpm_pcr_value_t pcr17, pcr18, pcr19;
+    const tpm_pcr_value_t *pcr_values[3] = {&pcr17, &pcr18, &pcr19};
+    uint32_t blobsize1;
+    uint32_t blobsize2;
+    uint32_t statesize1;
+    uint32_t statesize2;
+    char *outptr;
+
+    tpm_pcr_read(2, 17, &pcr17);
+    tpm_pcr_read(2, 18, &pcr18);
+    tpm_pcr_read(2, 19, &pcr19);
+
+    blobsize1 = sizeof(blob);
+    statesize1 = (uint8_t *)pstate->state2 - (uint8_t *)pstate;
+    statesize2 = ((sizeof(state) - statesize1) / N_BLOCK) * N_BLOCK;
+    blobsize2 = statesize2 + N_BLOCK;
+
+    /*recycle iv */
+    sha1_buffer(blob2, N_BLOCK, blob2);
+
+    aes_cbc_encrypt(blob2+N_BLOCK, (uint8_t *)pstate->state2, statesize2/N_BLOCK,
+            blob2, pstate->state2_key);
+
+    sha1_buffer(blob2, blobsize2, pstate->state2_hash);
+
+    if (tpm_seal(2, TPM_LOC_TWO, sizeof(pcrs), pcrs, sizeof(pcrs), pcrs, pcr_values,
+                statesize1, (uint8_t *)pstate, &blobsize1, blob) != 0) {
+        log_event(LOG_LEVEL_ERROR, "error: seal failed\n");
+        return rslt_fail;
+    }
+
+    outptr = pm_reserve(tag_blob, blobsize1+blobsize2);
+    memcpy(outptr, blob, blobsize1);
+    memcpy(outptr+blobsize1, blob2, blobsize2);
+
+    log_event(LOG_LEVEL_INFORMATION, "successfully sealed state, size: %d\n",
+        blobsize1+blobsize2);
+    return rslt_ok;
+}
+
+
 static int state_unseal(struct state *pstate)
 {
     char *inptr;
     uint8_t pcrs[3] = {17, 18, 19};
     uint32_t blobsize;
-    uint32_t statesize;
+    uint32_t blobsize1;
+    uint32_t blobsize2;
+    uint32_t statesize1;
+    uint32_t statesize2;
     tpm_pcr_value_t pcr17, pcr18, pcr19;
     const tpm_pcr_value_t *pcr_values[3] = {&pcr17, &pcr18, &pcr19};
+    uint8_t md[SHA_DIGEST_LENGTH];
 
     if ((blobsize = pm_get_addr(tag_blob, &inptr)) < 0) {
         log_event(LOG_LEVEL_ERROR, "error: no blob\n");
         return rslt_badparams;
     }
 
+    if (blobsize < sizeof(tpm_stored_data12_header_t))
+        return rslt_badparams;
+    if (((const tpm_stored_data12_header_t *)inptr)->tag != TPM_TAG_STORED_DATA12)
+        return rslt_badparams;
+
+    if (((const tpm_stored_data12_header_t *)inptr)->seal_info_size == 0) {
+        const tpm_stored_data12_short_t *data12_s;
+
+        if (blobsize < sizeof(*data12_s))
+            return rslt_badparams;
+        data12_s = (const tpm_stored_data12_short_t *)inptr;
+        blobsize1 = sizeof(*data12_s) + data12_s->enc_data_size;
+        if (blobsize < blobsize1)
+            return rslt_badparams;
+    } else {
+        const tpm_stored_data12_t *data12;
+
+        if (blobsize < sizeof(*data12))
+            return rslt_badparams;
+        data12 = (const tpm_stored_data12_t *)inptr;
+        blobsize1 = sizeof(*data12) + data12->enc_data_size;
+        if (blobsize < blobsize1)
+            return rslt_badparams;
+    }
+
+    blobsize2 = blobsize - blobsize1;
+
     tpm_pcr_read(2, 17, &pcr17);
     tpm_pcr_read(2, 18, &pcr18);
     tpm_pcr_read(2, 19, &pcr19);
 
-    if(!tpm_cmp_creation_pcrs(sizeof(pcrs), pcrs, pcr_values, blobsize, (uint8_t *)inptr)) {
+    if(!tpm_cmp_creation_pcrs(sizeof(pcrs), pcrs, pcr_values, blobsize1, (uint8_t *)inptr)) {
         log_event(LOG_LEVEL_ERROR, "error: creation pcrs mismatch\n");
         return rslt_inconsistentstate;
     }
 
-    statesize = sizeof(*pstate);
-    if (tpm_unseal(2, blobsize, (uint8_t *)inptr, &statesize, (uint8_t *)pstate) != 0) {
+    statesize1 = sizeof(*pstate);
+    if (tpm_unseal(2, blobsize1, (uint8_t *)inptr, &statesize1, (uint8_t *)pstate) != 0) {
         log_event(LOG_LEVEL_ERROR, "error: unseal failed\n");
+        return rslt_badparams;
+    }
+
+    if (statesize1 != (uint8_t *)pstate->state2 - (uint8_t *)pstate) {
+        log_event(LOG_LEVEL_ERROR, "error: unseal wrong size\n");
+        return rslt_badparams;
+    }
+
+    sha1_buffer((uint8_t *)inptr+blobsize1, blobsize2, md);
+    if (memcmp(md, pstate->state2_hash, sizeof(md)) != 0) {
+        log_event(LOG_LEVEL_ERROR, "error: state2 wrong hash\n");
+        return rslt_badparams;
+    }
+
+    statesize2 = ((sizeof(state) - statesize1) / N_BLOCK) * N_BLOCK;
+
+    if (blobsize2 != statesize2 + N_BLOCK) {
+        log_event(LOG_LEVEL_ERROR, "error: state2 wrong size\n");
         return rslt_fail;
     }
+
+    /* save iv for seal */
+    memcpy(blob2, (uint8_t *)inptr+blobsize1, N_BLOCK);
+
+    aes_cbc_decrypt((uint8_t *)pstate->state2, (uint8_t *)inptr+blobsize1+N_BLOCK,
+           statesize2/N_BLOCK, blob2, state.state2_dkey);
 
     log_event(LOG_LEVEL_INFORMATION, "state unsealed successfully\n");
 
@@ -353,32 +469,7 @@ static int state_unseal(struct state *pstate)
 }
 
 
-static int state_seal(struct state *pstate)
-{
-    uint8_t pcrs[3] = {17, 18, 19};
-    tpm_pcr_value_t pcr17, pcr18, pcr19;
-    const tpm_pcr_value_t *pcr_values[3] = {&pcr17, &pcr18, &pcr19};
-    uint32_t blobsize;
-
-    tpm_pcr_read(2, 17, &pcr17);
-    tpm_pcr_read(2, 18, &pcr18);
-    tpm_pcr_read(2, 19, &pcr19);
-
-    blobsize = sizeof(blob);
-    if (tpm_seal(2, TPM_LOC_TWO, sizeof(pcrs), pcrs, sizeof(pcrs), pcrs, pcr_values,
-                sizeof(*pstate), (uint8_t *)pstate, &blobsize, blob) != 0) {
-        log_event(LOG_LEVEL_ERROR, "error: seal failed\n");
-        return rslt_fail;
-    }
-
-    pm_append(tag_blob, (char *)blob, blobsize);
-
-    log_event(LOG_LEVEL_INFORMATION, "successfully sealed state, size: %d\n", sizeof(*pstate));
-    return rslt_ok;
-}
-
-
-static void dumphex(unsigned char *bytes, int len)
+static void dumphex(uint8_t *bytes, int len)
 {
     int i;
     if(!bytes) return;

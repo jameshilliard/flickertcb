@@ -35,6 +35,8 @@
 #define BLOB_FILE       "bitcoin.blob"
 #define BLOB_BAK_FILE   "bitcoin.blob.bak"
 
+unsigned char blob[10000];
+
 /* forward references */
 static void print_output(void);
 static int handle_results(void);
@@ -168,7 +170,6 @@ static int do_encrypt(unsigned char *iv, unsigned char *ptext, int ptextlen)
     int cmd = cmd_encrypt;
     FILE *blobfile;
     int blobsize;
-    unsigned char blob[512];
 
     if ((blobfile = fopen(BLOB_FILE, "rb")) == NULL) {
         fprintf(stderr, "unable to open blob file %s\n", BLOB_FILE);
@@ -196,7 +197,6 @@ static int do_decrypt(unsigned char *iv, unsigned char *ctext, int ctextlen)
     int cmd = cmd_decrypt;
     FILE *blobfile;
     int blobsize;
-    unsigned char blob[512];
 
     if ((blobfile = fopen(BLOB_FILE, "rb")) == NULL) {
         fprintf(stderr, "unable to open blob file %s\n", BLOB_FILE);
