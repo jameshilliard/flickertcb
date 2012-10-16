@@ -42,13 +42,13 @@ struct state {
     uint8_t state2_key[2*N_BLOCK];
     uint8_t state2_dkey[2*N_BLOCK];
 uint8_t state2[0];
-    uint64_t current_ticks;
     tpm_nonce_t tick_nonce;
     int interval_secs;
     uint32_t counter;
     uint8_t key[2*N_BLOCK];
     uint8_t dkey[2*N_BLOCK];
     uint8_t ct_mem[NMEM][SHA_DIGEST_LENGTH];
+    uint64_t current_ticks[NMEM];
     uint8_t pad[N_BLOCK];
 };
 
@@ -146,7 +146,7 @@ static int do_init_cmd(int cmd)
 
     state.interval_secs = *(int *)inptr;
     tpm_read_current_ticks(2, &ticks);
-    state.current_ticks = ticks.current_ticks;
+    memset(state.current_ticks, 0, sizeof(state.current_ticks));
     memcpy(state.tick_nonce.nonce, ticks.tick_nonce.nonce, sizeof(state.tick_nonce.nonce));
     tpm_increment_counter(2, counter_id, &ctr_authdata, &counter);
     state.counter = counter.counter;
@@ -283,12 +283,12 @@ static int do_decrypt(int cmd)
             return rslt_inconsistentstate;
         }
 
-        interval_secs = (ticks.current_ticks - state.current_ticks)
+        interval_secs = (ticks.current_ticks - state.current_ticks[0])
             / (1000000 / ticks.tick_rate);
         log_event(LOG_LEVEL_INFORMATION, "interval = %d secs\n", interval_secs);
-        if (interval_secs < state.interval_secs) {
+        if (interval_secs < state.interval_secs * NMEM) {
             log_event(LOG_LEVEL_WARNING, "error: interval too short\n");
-            interval_secs = state.interval_secs - interval_secs;
+            interval_secs = state.interval_secs * NMEM - interval_secs;
             pm_append(tag_delay, (char *)&interval_secs, sizeof(interval_secs));
             return rslt_disallowed;
         }
@@ -318,12 +318,14 @@ static int do_decrypt(int cmd)
     pm_append(tag_plaintext, (char *)padded, inlen-padlen);
 
     if (!duplicate) {
-        for (i=1; i<NMEM; i++) {
+        for (i=1; i<NMEM; i++)
             memcpy(state.ct_mem[i-1], state.ct_mem[i], SHA_DIGEST_LENGTH);
-            memcpy(state.ct_mem[NMEM-1], md, SHA_DIGEST_LENGTH);
-        }
+        memcpy(state.ct_mem[NMEM-1], md, SHA_DIGEST_LENGTH);
 
-        state.current_ticks = ticks.current_ticks;
+        for (i=1; i<NMEM; i++)
+            state.current_ticks[i-1] = state.current_ticks[i];
+        state.current_ticks[NMEM-1] = ticks.current_ticks;
+
         tpm_increment_counter(2, counter_id, &ctr_authdata, &counter);
         state.counter = counter.counter;
 
