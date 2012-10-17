@@ -184,6 +184,7 @@ static void print_output()
 {
     int nout;
     int *outp;
+    unsigned long long ts, pts=0;
 
     outp = (int *)outbuf;
     nout = *outp++;
@@ -192,9 +193,16 @@ static void print_output()
         int size = *outp++;
 
         if (type == 1) {
-            write(1, outp, size);
+            fwrite(outp, 1, size, stdout);
+#if 0
+        } else if (type == 2) {
+            ts = *(unsigned long long *)outp;
+            printf(":%12lld  ", (pts==0)?0ll:(ts-pts));
+            fwrite((char *)outp+sizeof(long long), 1, size-sizeof(long long), stdout);
+            printf("\n");
+            pts = ts;
+#endif
         }
-
         outp = (int *)((unsigned char *)outp + size);
     }
 }

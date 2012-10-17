@@ -31,6 +31,7 @@
 #include "tpm.h"
 #include "string.h"
 #include "sha1.h"
+#include "util.h"
 #include "aes.h"
 #include "cbcmode.h"
 #include "bitcoin.h"
@@ -360,16 +361,20 @@ static int state_seal(struct state *pstate)
     /*recycle iv */
     sha1_buffer(blob2, N_BLOCK, blob2);
 
+    record_timestamp("state2 encrypt start");
     aes_cbc_encrypt(blob2+N_BLOCK, (uint8_t *)pstate->state2, statesize2/N_BLOCK,
             blob2, pstate->state2_key);
+    record_timestamp("state2 encrypt end");
 
     sha1_buffer(blob2, blobsize2, pstate->state2_hash);
 
+    record_timestamp("state seal start");
     if (tpm_seal(2, TPM_LOC_TWO, sizeof(pcrs), pcrs, sizeof(pcrs), pcrs, pcr_values,
                 statesize1, (uint8_t *)pstate, &blobsize1, blob) != 0) {
         log_event(LOG_LEVEL_ERROR, "error: seal failed\n");
         return rslt_fail;
     }
+    record_timestamp("state seal end");
 
     outptr = pm_reserve(tag_blob, blobsize1+blobsize2);
     memcpy(outptr, blob, blobsize1);
@@ -435,11 +440,13 @@ static int state_unseal(struct state *pstate)
         return rslt_inconsistentstate;
     }
 
+    record_timestamp("state unseal start");
     statesize1 = sizeof(*pstate);
     if (tpm_unseal(2, blobsize1, (uint8_t *)inptr, &statesize1, (uint8_t *)pstate) != 0) {
         log_event(LOG_LEVEL_ERROR, "error: unseal failed\n");
         return rslt_badparams;
     }
+    record_timestamp("state unseal end");
 
     if (statesize1 != (uint8_t *)pstate->state2 - (uint8_t *)pstate) {
         log_event(LOG_LEVEL_ERROR, "error: unseal wrong size\n");
@@ -462,8 +469,10 @@ static int state_unseal(struct state *pstate)
     /* save iv for seal */
     memcpy(blob2, (uint8_t *)inptr+blobsize1, N_BLOCK);
 
+    record_timestamp("state2 decrypt start");
     aes_cbc_decrypt((uint8_t *)pstate->state2, (uint8_t *)inptr+blobsize1+N_BLOCK,
            statesize2/N_BLOCK, blob2, state.state2_dkey);
+    record_timestamp("state2 decrypt end");
 
     log_event(LOG_LEVEL_INFORMATION, "state unsealed successfully\n");
 
