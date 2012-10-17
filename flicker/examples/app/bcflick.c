@@ -33,7 +33,7 @@
 #define SINIT_FILE      "/boot/sinit-current.bin"
 #define PAL_FILE        "../pal/bitcoin.bin"
 #define BLOB_FILE       "bcflick.blob"
-#define SECONDS         3600
+#define SECONDS         300
 
 unsigned char blob[10000];
 

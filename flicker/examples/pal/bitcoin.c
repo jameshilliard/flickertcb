@@ -266,6 +266,9 @@ static int do_decrypt(int cmd)
 
     ctxt = (uint8_t *)inptr;
 
+    log_event(LOG_LEVEL_INFORMATION, "ctxt:\n");
+    dumphex(ctxt, inlen);
+
     sha1_buffer(ctxt, inlen, md);
 
     for (i=0; i<NMEM; i++) {
@@ -298,9 +301,6 @@ static int do_decrypt(int cmd)
     }
 
     aes_cbc_decrypt(padded, ctxt, inlen, iv, state.dkey);
-
-    log_event(LOG_LEVEL_INFORMATION, "padded ctxt:\n");
-    dumphex(padded, inlen);
 
     padlen = padded[inlen-1];
     i = 0;
