@@ -841,6 +841,14 @@ typedef struct {
 
 #define TPM_CAP_PROPERTY          0x00000005
 #define TPM_CAP_PROP_TIS_TIMEOUT  0x00000115
+#define TPM_CAP_PROP_MIN_COUNTER       0x00000107
+#define TPM_CAP_PROP_COUNTERS          0x0000010C
+#define TPM_CAP_PROP_MAX_COUNTERS      0x0000010F
+#define TPM_CAP_PROP_ACTIVE_COUNTER    0x00000122
+
+
+#define TPM_CAP_HANDLE                 0x00000014
+#define TPM_RT_COUNTER                 0x00000006
 
 
 
