@@ -75,6 +75,7 @@
 #define TPM_BASE                0x00000000
 #define TPM_NON_FATAL           0x00000800
 #define TPM_SUCCESS             TPM_BASE
+#define TPM_AUTHFAIL            (TPM_BASE + 1)
 #define TPM_BADINDEX            (TPM_BASE + 2)
 #define TPM_BAD_PARAMETER       (TPM_BASE + 3)
 #define TPM_DEACTIVATED         (TPM_BASE + 6)
@@ -86,6 +87,7 @@
 #define TPM_NOTLOCAL            (TPM_BASE + 51)
 #define TPM_BAD_LOCALITY        (TPM_BASE + 61)
 #define TPM_READ_ONLY           (TPM_BASE + 62)
+#define TPM_BAD_COUNTER         (TPM_BASE + 69)
 #define TPM_NOT_FULLWRITE       (TPM_BASE + 70)
 #define TPM_RETRY               (TPM_BASE + TPM_NON_FATAL)
 
