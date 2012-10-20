@@ -35,8 +35,9 @@
 #include "aes.h"
 #include "cbcmode.h"
 #include "bitcoin.h"
-
-#define     NMEM    5
+ 
+#define     NMEM        5
+#define     MYCOUNTER   "BITC"
 
 struct state {
     uint8_t state2_hash[SHA_DIGEST_LENGTH];
@@ -45,6 +46,7 @@ struct state {
 uint8_t state2[0];
     tpm_nonce_t tick_nonce;
     int interval_secs;
+    uint32_t counter_id;
     uint32_t counter;
     uint8_t key[2*N_BLOCK];
     uint8_t dkey[2*N_BLOCK];
@@ -57,6 +59,7 @@ static int do_init_cmd(int cmd);
 static int do_encrypt(int cmd);
 static int do_decrypt(int cmd);
 static void dumphex(uint8_t *bytes, int len);
+static int find_counter(struct state *pstate);
 static int state_seal(struct state *pstate);
 static int state_unseal(struct state *pstate);
 
@@ -102,17 +105,18 @@ static uint8_t blob[400], blob2[sizeof(struct state)];
 
 static const tpm_authdata_t ctr_authdata =
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-static uint32_t counter_id = 0xab336c2;
 
 static int do_init_cmd(int cmd)
 {
     tpm_current_ticks_t ticks;
-    tpm_counter_value_t counter;
     char *inptr;
     int inlen;
     uint8_t inblk[N_BLOCK], outblk[N_BLOCK];
     uint32_t keysize;
     int rslt;
+
+    if ((rslt = find_counter(&state)) != rslt_ok)
+        return rslt;
 
     if ((inlen=pm_get_addr(tag_key, &inptr)) < 0) {
         log_event(LOG_LEVEL_ERROR, "error: no key\n");
@@ -149,8 +153,6 @@ static int do_init_cmd(int cmd)
     tpm_read_current_ticks(2, &ticks);
     memset(state.current_ticks, 0, sizeof(state.current_ticks));
     memcpy(state.tick_nonce.nonce, ticks.tick_nonce.nonce, sizeof(state.tick_nonce.nonce));
-    tpm_increment_counter(2, counter_id, &ctr_authdata, &counter);
-    state.counter = counter.counter;
     memset(state.ct_mem, 0, sizeof(state.ct_mem));
 
     if ((rslt = state_seal(&state)) != rslt_ok)
@@ -175,7 +177,7 @@ static int do_encrypt(int cmd)
     if ((rslt = state_unseal(&state)) != rslt_ok)
         return rslt;
 
-    tpm_read_counter(2, counter_id, &counter);
+    tpm_read_counter(2, state.counter_id, &counter);
     if (counter.counter != state.counter) {
         log_event(LOG_LEVEL_ERROR, "anti rollback counter error: %d should be %d\n",
                 state.counter, counter.counter );
@@ -235,7 +237,7 @@ static int do_decrypt(int cmd)
     if ((rslt = state_unseal(&state)) != rslt_ok)
         return rslt;
 
-    tpm_read_counter(2, counter_id, &counter);
+    tpm_read_counter(2, state.counter_id, &counter);
     if (counter.counter != state.counter) {
         log_event(LOG_LEVEL_ERROR, "anti rollback counter error: %d should be %d\n",
                 state.counter, counter.counter );
@@ -327,7 +329,7 @@ static int do_decrypt(int cmd)
             state.current_ticks[i-1] = state.current_ticks[i];
         state.current_ticks[NMEM-1] = ticks.current_ticks;
 
-        tpm_increment_counter(2, counter_id, &ctr_authdata, &counter);
+        tpm_increment_counter(2, state.counter_id, &ctr_authdata, &counter);
         state.counter = counter.counter;
 
         if ((rslt = state_seal(&state)) != rslt_ok)
@@ -335,6 +337,108 @@ static int do_decrypt(int cmd)
     }
 
     return rslt;
+}
+
+
+static int find_counter(struct state *pstate)
+{
+    tpm_counter_value_t counter;
+    uint32_t subcap;
+    uint32_t capsize;
+    uint8_t caparea[4];
+    uint8_t subcaparea[4];
+    uint32_t max_counters;
+    uint8_t *chandles;
+    uint16_t nctrs;
+    uint32_t ctrid;
+    int chsize;
+    int tryreboot;
+    int i;
+
+    pstate->counter_id = 0;
+
+    /* check active monotonic counter */
+    capsize = sizeof(caparea);
+    subcap = TPM_CAP_PROP_ACTIVE_COUNTER;
+    reverse_copy(subcaparea, (uint8_t *)&subcap, sizeof(subcaparea));
+    if (tpm_get_capability(2, TPM_CAP_PROPERTY, sizeof(subcaparea), subcaparea,
+                &capsize, (uint8_t *)&caparea) != 0  ||  capsize != sizeof(caparea)) {
+        log_event(LOG_LEVEL_ERROR, "error: read active counter\n");
+        return rslt_fail;
+    }
+
+    reverse_copy((uint8_t *)&ctrid, caparea, sizeof(ctrid));
+    log_event(LOG_LEVEL_INFORMATION, "active ctrid: 0x%x\n", ctrid);
+
+    if (tpm_increment_counter(2, ctrid, &ctr_authdata, &counter) == 0) {
+        //log_event(LOG_LEVEL_INFORMATION, "label: %c%c%c%c\n", counter.label[0],
+                //counter.label[1], counter.label[2], counter.label[3]);
+        if (memcmp(counter.label, MYCOUNTER, sizeof(counter.label)) == 0) {
+            log_event(LOG_LEVEL_INFORMATION, "active ctrid successful\n");
+            pstate->counter_id = ctrid;
+            pstate->counter = counter.counter;
+            return rslt_ok;
+        }
+    }
+
+    /* search for monotonic counter */
+    capsize = sizeof(caparea);
+    subcap = TPM_CAP_PROP_MAX_COUNTERS;
+    reverse_copy(subcaparea, (uint8_t *)&subcap, sizeof(subcaparea));
+    if (tpm_get_capability(2, TPM_CAP_PROPERTY, sizeof(subcaparea), subcaparea,
+                &capsize, (uint8_t *)&caparea) != 0  ||  capsize != sizeof(caparea)) {
+        log_event(LOG_LEVEL_ERROR, "error: read max counters\n");
+        return rslt_fail;
+    }
+
+    reverse_copy((uint8_t *)&max_counters, caparea, sizeof(max_counters));
+    log_event(LOG_LEVEL_INFORMATION, "max_counters: %d\n", max_counters);
+
+    chsize = sizeof(nctrs) + sizeof(ctrid) * max_counters;
+    if ((chandles = malloc(chsize)) == NULL) {
+        log_event(LOG_LEVEL_ERROR, "error: malloc\n");
+        return rslt_fail;
+    }
+
+    capsize = chsize;
+    subcap = TPM_RT_COUNTER;
+    reverse_copy(subcaparea, (uint8_t *)&subcap, sizeof(subcaparea));
+    if (tpm_get_capability(2, TPM_CAP_HANDLE, sizeof(subcaparea), subcaparea,
+                &capsize, chandles) != 0) {
+        log_event(LOG_LEVEL_ERROR, "error: read counter handles\n");
+        return rslt_fail;
+    }
+
+    reverse_copy((uint8_t *)&nctrs, chandles, sizeof(nctrs));
+    log_event(LOG_LEVEL_INFORMATION, "nctrs: %d\n", nctrs);
+
+    tryreboot = false;
+    for (i=0; i<nctrs; i++) {
+        reverse_copy((uint8_t *)&ctrid, chandles+sizeof(nctrs)+sizeof(ctrid)*i, sizeof(ctrid));
+        log_event(LOG_LEVEL_INFORMATION, "ctrid: 0x%x\n", ctrid);
+        if (tpm_read_counter(2, ctrid, &counter) != 0)
+            continue;
+        log_event(LOG_LEVEL_INFORMATION, "label: %c%c%c%c\n", counter.label[0],
+                counter.label[1], counter.label[2], counter.label[3]);
+        if (memcmp(counter.label, MYCOUNTER, sizeof(counter.label)) == 0) {
+            if (tpm_increment_counter(2, ctrid, &ctr_authdata, &counter) == 0) {
+                log_event(LOG_LEVEL_INFORMATION, "this ctrid successful\n");
+                pstate->counter_id = ctrid;
+                pstate->counter = counter.counter;
+                return rslt_ok;
+            } else {
+                tryreboot = true;
+            }
+        }
+    }
+
+    if (tryreboot)
+        log_event(LOG_LEVEL_INFORMATION,
+                "unable to use anti rollback counter, try rebooting\n");
+    else
+        log_event(LOG_LEVEL_INFORMATION,
+                "no usable anti rollback counter, create one with label: %s\n", MYCOUNTER);
+    return rslt_fail;
 }
 
 
