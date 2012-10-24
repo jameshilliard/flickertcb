@@ -15,6 +15,7 @@ CFLAGS := -Wall -Werror -O2 -std=gnu99 -m32 -march=i686
 CFLAGS += -ffreestanding -nostdlib 
 CFLAGS += -fno-builtin -fno-common -fno-strict-aliasing
 CFLAGS += -fomit-frame-pointer
+CFLAGS += -I$(CURDIR)/libtommath
 CFLAGS += -I$(CURDIR)/../../include
 CFLAGS += -I$(CURDIR)/../../pal
 CFLAGS += -msoft-float
@@ -61,10 +62,10 @@ rlimit.elf: $(PAL_OBJS) $(LINKFILE) $(RLIMIT_OBJS)
 	$(LD) $(LDFLAGS) -T $(LINKFILE) -N $(PAL_OBJS) $(RLIMIT_OBJS) $(GCC_LIBS) \
 	    -o $(@D)/$(@F)
 
-BITCOIN_OBJS := bitcoin.o aes.o cbcmode.o
+BITCOIN_OBJS := bitcoin.o aes.o cbcmode.o bcmath.o libtommath/libtommath.a
 bitcoin.elf: $(PAL_OBJS) $(LINKFILE) $(BITCOIN_OBJS)
 	$(LD) $(LDFLAGS) -T $(LINKFILE) -N $(PAL_OBJS) $(BITCOIN_OBJS) $(GCC_LIBS) \
-	    -o $(@D)/$(@F)
+	    -o $(@D)/$(@F) -M -Map=bitcoin.map
 
 %.bin: %.elf
 	$(OBJCOPY) -O binary $< $@
