@@ -11,9 +11,19 @@ VERSION=0.42.0
 
 CFLAGS += -I$(srcdir)
 
-ifneq ($(CC), armcc)
-CFLAGS  +=  -Wall -W -Wshadow -Wsign-compare
-endif
+CFLAGS += -Wall -Werror -O2 -std=gnu99 -m32 -march=i686
+CFLAGS += -ffreestanding -nostdlib 
+CFLAGS += -fno-builtin -fno-common -fno-strict-aliasing
+CFLAGS += -fomit-frame-pointer
+CFLAGS += -I$(CURDIR)/../../../include
+CFLAGS += -I$(CURDIR)/../../../pal
+CFLAGS += -msoft-float
+CFLAGS += -fno-jump-tables
+CFLAGS += -fno-stack-protector
+
+#ifneq ($(CC), armcc)
+#CFLAGS  +=  -Wall -W -Wshadow -Wsign-compare
+#endif
 
 ifndef MAKE
    MAKE=make
@@ -22,17 +32,17 @@ endif
 ifndef IGNORE_SPEED
 
 #for speed 
-ifneq ($(CC), armcc)
-CFLAGS += -O3 -funroll-loops
-endif
+#ifneq ($(CC), armcc)
+#CFLAGS += -O3 -funroll-loops
+#endif
 
 #for size 
 #CFLAGS += -Os
 
 #x86 optimizations [should be valid for any GCC install though]
-ifneq ($(CC), armcc)
-CFLAGS  += -fomit-frame-pointer
-endif
+#ifneq ($(CC), armcc)
+#CFLAGS  += -fomit-frame-pointer
+#endif
 
 #debug
 #CFLAGS += -g3
