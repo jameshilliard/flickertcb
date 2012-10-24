@@ -223,21 +223,6 @@ static int handle_results()
     rslt = *(int *)outptr;
     printf("result code from pal: %d\n", rslt);
 
-    if ((blobsize = pm_get_addr(tag_blob, &outptr)) < 0)
-        return rslt;
-
-    if ((blobfile = fopen(BLOB_FILE, "wb")) == NULL) {
-        fprintf(stderr, "unable to open for writing blob file %s\n", BLOB_FILE);
-        return -1;
-    }
-
-    if (fwrite(outptr, 1, blobsize, blobfile) != blobsize) {
-        fprintf(stderr, "unable to write blob file\n");
-        return -1;
-    }
-
-    fclose(blobfile);
-
     ptextlen = pm_get_addr(tag_plaintext, &outptr);
     ctextlen = pm_get_addr(tag_ciphertext, &outptr);
  
@@ -253,6 +238,21 @@ static int handle_results()
             printf("%02x", ((unsigned char *)outptr)[i]);
         printf("\n");
     }
+
+    if ((blobsize = pm_get_addr(tag_blob, &outptr)) < 0)
+        return rslt;
+
+    if ((blobfile = fopen(BLOB_FILE, "wb")) == NULL) {
+        fprintf(stderr, "unable to open for writing blob file %s\n", BLOB_FILE);
+        return -1;
+    }
+
+    if (fwrite(outptr, 1, blobsize, blobfile) != blobsize) {
+        fprintf(stderr, "unable to write blob file\n");
+        return -1;
+    }
+
+    fclose(blobfile);
 
     return rslt;
 }
