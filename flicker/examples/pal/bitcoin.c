@@ -405,6 +405,7 @@ static int find_counter(struct state *pstate)
     reverse_copy(subcaparea, (uint8_t *)&subcap, sizeof(subcaparea));
     if (tpm_get_capability(2, TPM_CAP_HANDLE, sizeof(subcaparea), subcaparea,
                 &capsize, chandles) != 0) {
+        free(chandles);
         log_event(LOG_LEVEL_ERROR, "error: read counter handles\n");
         return rslt_fail;
     }
@@ -424,6 +425,7 @@ static int find_counter(struct state *pstate)
             if (tpm_increment_counter(2, ctrid, &ctr_authdata, &counter) == 0) {
                 log_event(LOG_LEVEL_INFORMATION, "this ctrid successful\n");
                 pstate->counter_id = ctrid;
+                free(chandles);
                 pstate->counter = counter.counter;
                 return rslt_ok;
             } else {
@@ -431,6 +433,7 @@ static int find_counter(struct state *pstate)
             }
         }
     }
+    free(chandles);
 
     if (tryreboot)
         log_event(LOG_LEVEL_INFORMATION,
