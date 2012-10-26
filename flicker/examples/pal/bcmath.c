@@ -295,37 +295,214 @@ static int ecinit(ecpoint *a)
     return MP_OKAY;
 }
 
-#if 0
-static int ecadd(ecpoint *a, ecpoint *b, ecpoint *r, mp_int *p)
+static void ecclear(ecpoint *a)
 {
+    mp_clear_multi(a->x, a->y, NULL);
 }
-#endif
 
 
-
-int testmath(char *s)
+static int ecdbl(ecpoint *a, mp_int *p, ecpoint *r)
 {
-    mp_int mpi_, *mpi=&mpi_;
-    mp_int mpj_, *mpj=&mpj_;
-    mp_int mpk_, *mpk=&mpk_;
-    ecpoint _eca, *eca=&_eca;
+    mp_int _xx, *xx=&_xx;
+    mp_int _yy, *yy=&_yy;
+    mp_int _rx, *rx=&_rx;
+    int rslt;
 
-    ecinit(eca);
+    if (mp_iszero(a->x) && mp_iszero(a->y)) {
+        mp_zero(r->x);
+        mp_zero(r->y);
+        return MP_OKAY;
+    }
 
-    mp_init_multi(mpi, mpj, mpk, 0);
-    mp_read_unsigned_bin(mpi, G[0][1], 32);
-    mp_toradix(mpi, s, 16);
-    mp_read_unsigned_bin(mpj, p_data, 32);
+    if ((rslt=mp_init_multi(xx, yy, rx, NULL)) != MP_OKAY)
+        return rslt;
+
+    if ((rslt=mp_addmod(a->y, a->y, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_invmod(yy, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_sqrmod(a->x, p, xx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_addmod(xx, xx, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_addmod(rx, xx, p, xx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_mulmod(yy, xx, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_sqrmod(yy, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(rx, a->x, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(rx, a->x, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(a->x, rx, p, xx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_mulmod(xx, yy, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(yy, a->y, p, r->y)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_copy(rx, r->x)) != MP_OKAY)
+        return rslt;
+
+    mp_clear_multi(xx, yy, rx, NULL);
+    return MP_OKAY;
+}
+
+
+static int ecadd(ecpoint *a, ecpoint *b, mp_int *p, ecpoint *r)
+{
+    mp_int _xx, *xx=&_xx;
+    mp_int _yy, *yy=&_yy;
+    mp_int _rx, *rx=&_rx;
+    int rslt;
+
+    if (mp_iszero(a->x) && mp_iszero(a->y)) {
+        if ((rslt=mp_copy(b->x, r->x)) != MP_OKAY)
+            return rslt;
+        if ((rslt=mp_copy(b->y, r->y)) != MP_OKAY)
+            return rslt;
+        return MP_OKAY;
+    }
+    if (mp_iszero(b->x) && mp_iszero(b->y)) {
+        if ((rslt=mp_copy(a->x, r->x)) != MP_OKAY)
+            return rslt;
+        if ((rslt=mp_copy(a->y, r->y)) != MP_OKAY)
+            return rslt;
+        return MP_OKAY;
+    }
+
+    if (mp_cmp(a->x, b->x) == MP_EQ) {
+        if (mp_cmp(a->y, b->y) == MP_EQ) {
+            return ecdbl(a, p, r);
+        } else {
+            mp_zero(r->x);
+            mp_zero(r->y);
+            return MP_OKAY;
+        }
+    }
+
+    if ((rslt=mp_init_multi(xx, yy, rx, NULL)) != MP_OKAY)
+        return rslt;
+
+    if ((rslt=mp_submod(a->x, b->x, p, xx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_invmod(xx, p, xx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(a->y, b->y, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_mulmod(yy, xx, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_sqrmod(yy, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(rx, a->x, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(rx, b->x, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(a->x, rx, p, xx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_mulmod(xx, yy, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(yy, a->y, p, r->y)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_copy(rx, r->x)) != MP_OKAY)
+        return rslt;
+
+    mp_clear_multi(xx, yy, rx, NULL);
+    return MP_OKAY;
+}
+
+
+/* r = eG */
+static int ecmul_g(mp_int *e, mp_int *p, ecpoint *r)
+{
+    ecpoint _g, *g=&_g;
+    ecpoint _bb, *bb=&_bb;
+    mp_int _ee, *ee=&_ee;
+    int edig[52];
+    int i, j;
+    int rslt;
+
+    mp_init(ee);
+    ecinit(g);
+    ecinit(bb);
+
+    /* split e into 5 bit pieces */
+    if ((rslt=mp_copy(e, ee)) != MP_OKAY)
+        return rslt;
+    for (i=0; i<52; i++) {
+        edig[i] = 31 & mp_get_int(ee);
+        if ((rslt=mp_div_2d(ee, 5, ee, NULL)) != MP_OKAY)
+            return rslt;
+    }
+
+    mp_zero(r->x); mp_zero(r->y);
+    ecinit(bb);
+
+    for (j=31; j>=1; j--) {
+        for (i=0; i<52; i++) {
+            if (edig[i] == j) {
+                mp_read_unsigned_bin(g->x, G[i][0], 32);
+                mp_read_unsigned_bin(g->y, G[i][1], 32);
+                if ((rslt=ecadd(bb, g, p, bb)) != MP_OKAY)
+                    return rslt;
+            }
+        }
+        if ((rslt=ecadd(r, bb, p, r)) != MP_OKAY)
+            return rslt;
+    }
+
+    mp_clear(ee);
+    ecclear(g);
+    ecclear(bb);
+    memset(edig, 0, sizeof(edig));
+
+    return MP_OKAY;
+}
+
+
+
+int testmath(unsigned char *buf)
+{
+    mp_int _p, *p=&_p;
+    mp_int _e, *e=&_e;
+    ecpoint _g, *g=&_g;
+    ecpoint _gg, *gg=&_gg;
+    ecpoint _gh, *gh=&_gh;
+
+    ecinit(g);
+    ecinit(gg);
+    ecinit(gh);
+
+    mp_init_multi(p, e, 0);
+    mp_read_unsigned_bin(g->x, G[0][0], 32);
+    mp_read_unsigned_bin(g->y, G[0][1], 32);
+    mp_read_unsigned_bin(p, p_data, 32);
     record_timestamp("addmod start");
-    mp_addmod(mpi, mpi, mpj, mpk);
+    mp_addmod(g->x, g->x, p, gg->x);
     record_timestamp("addmod end");
+    record_timestamp("submod start");
+    mp_submod(gg->x, g->x, p, gg->x);
+    record_timestamp("submod end");
     record_timestamp("mulmod start");
-    mp_mulmod(mpi, mpi, mpj, mpk);
+    mp_mulmod(g->x, g->x, p, gg->x);
     record_timestamp("mulmod end");
     record_timestamp("invmod start");
-    mp_invmod(mpi, mpj, mpk);
+    mp_invmod(g->x, p, gg->x);
     record_timestamp("invmod end");
-    mp_clear_multi(mpi, mpj, mpk, 0);
+
+    ecadd(g, g, p, gg);
+    ecadd(gg, g, p, gg);
+
+    mp_set(e, 3);
+    ecmul_g(e, p, gg);
+    mp_to_unsigned_bin(gg->x, buf);
+    mp_to_unsigned_bin(gg->y, buf+32);
+
+    ecclear(g);
+    ecclear(gg);
+    ecclear(gh);
+
+    mp_clear_multi(p, e, 0);
     return 0;
 }
 
