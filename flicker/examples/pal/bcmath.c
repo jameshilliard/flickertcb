@@ -1,3 +1,29 @@
+/*
+ * bcmath.c: math for bitcoin
+ *
+ * Copyright (C) 2012 Hal Finney
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions, and the following disclaimer,
+ *    without modification.
+ * 2. The name of the author may not be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ */
+
 #include "tommath.h"
 
 #include <stdarg.h>
@@ -9,6 +35,13 @@
 #include "bitcoin.h"
 
 
+#define PBITS       256
+#define PLEN        (PBITS/8)
+#define WINDOW      5
+#define WINMASK     ((1<<WINDOW)-1)
+#define NWINS       ((PBITS+WINDOW-1)/WINDOW)
+
+
 typedef struct {
     mp_int _x, _y;
     mp_int *x, *y;
@@ -16,7 +49,7 @@ typedef struct {
 
 
 /* 2**(5*i) * G */
-static unsigned char G[52][2][32] = {
+static unsigned char G[NWINS][2][PLEN] = {
    {{0x79,0xbe,0x66,0x7e,0xf9,0xdc,0xbb,0xac,0x55,0xa0,0x62,0x95,0xce,0x87,0x0b,0x07,
      0x02,0x9b,0xfc,0xdb,0x2d,0xce,0x28,0xd9,0x59,0xf2,0x81,0x5b,0x16,0xf8,0x17,0x98,},
     {0x48,0x3a,0xda,0x77,0x26,0xa3,0xc4,0x65,0x5d,0xa4,0xfb,0xfc,0x0e,0x11,0x08,0xa8,
@@ -279,7 +312,7 @@ static unsigned char G[52][2][32] = {
    },
 };
 
-static unsigned char p_data[32] = {
+static unsigned char p_data[PLEN] = {
     0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
     0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xfe,0xff,0xff,0xfc,0x2f,
 };
@@ -418,7 +451,7 @@ static int ecmul_g(mp_int *e, mp_int *p, ecpoint *r)
     ecpoint _g, *g=&_g;
     ecpoint _bb, *bb=&_bb;
     mp_int _ee, *ee=&_ee;
-    int edig[52];
+    int edig[NWINS];
     int i, j;
     int rslt;
 
@@ -429,8 +462,8 @@ static int ecmul_g(mp_int *e, mp_int *p, ecpoint *r)
     /* split e into 5 bit pieces */
     if ((rslt=mp_copy(e, ee)) != MP_OKAY)
         return rslt;
-    for (i=0; i<52; i++) {
-        edig[i] = 31 & mp_get_int(ee);
+    for (i=0; i<NWINS; i++) {
+        edig[i] = WINMASK & mp_get_int(ee);
         if ((rslt=mp_div_2d(ee, 5, ee, NULL)) != MP_OKAY)
             return rslt;
     }
@@ -438,11 +471,11 @@ static int ecmul_g(mp_int *e, mp_int *p, ecpoint *r)
     mp_zero(r->x); mp_zero(r->y);
     ecinit(bb);
 
-    for (j=31; j>=1; j--) {
-        for (i=0; i<52; i++) {
+    for (j=WINMASK; j>=1; j--) {
+        for (i=0; i<NWINS; i++) {
             if (edig[i] == j) {
-                mp_read_unsigned_bin(g->x, G[i][0], 32);
-                mp_read_unsigned_bin(g->y, G[i][1], 32);
+                mp_read_unsigned_bin(g->x, G[i][0], PLEN);
+                mp_read_unsigned_bin(g->y, G[i][1], PLEN);
                 if ((rslt=ecadd(bb, g, p, bb)) != MP_OKAY)
                     return rslt;
             }
@@ -474,9 +507,9 @@ int testmath(unsigned char *buf)
     ecinit(gh);
 
     mp_init_multi(p, e, 0);
-    mp_read_unsigned_bin(g->x, G[0][0], 32);
-    mp_read_unsigned_bin(g->y, G[0][1], 32);
-    mp_read_unsigned_bin(p, p_data, 32);
+    mp_read_unsigned_bin(g->x, G[0][0], PLEN);
+    mp_read_unsigned_bin(g->y, G[0][1], PLEN);
+    mp_read_unsigned_bin(p, p_data, PLEN);
     record_timestamp("addmod start");
     mp_addmod(g->x, g->x, p, gg->x);
     record_timestamp("addmod end");
@@ -496,7 +529,7 @@ int testmath(unsigned char *buf)
     mp_set(e, 3);
     ecmul_g(e, p, gg);
     mp_to_unsigned_bin(gg->x, buf);
-    mp_to_unsigned_bin(gg->y, buf+32);
+    mp_to_unsigned_bin(gg->y, buf+PLEN);
 
     ecclear(g);
     ecclear(gg);
@@ -506,3 +539,13 @@ int testmath(unsigned char *buf)
     return 0;
 }
 
+
+/*
+ * Local variables:
+ * mode: C
+ * c-set-style: "BSD"
+ * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
+ * End:
+ */
