@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <locale.h>
 #include "callpal.h"
 #include "bitcoin.h"
 
@@ -192,12 +193,14 @@ static void print_output()
         int type = *outp++;
         int size = *outp++;
 
+        setlocale(LC_NUMERIC, "en_GB.utf8");
+
         if (type == 1) {
             fwrite(outp, 1, size, stdout);
 #if 0
         } else if (type == 2) {
             ts = *(unsigned long long *)outp;
-            printf(":%12lld  ", (pts==0)?0ll:(ts-pts));
+            printf(":%'13lld  ", (pts==0)?0ll:(ts-pts));
             fwrite((char *)outp+sizeof(long long), 1, size-sizeof(long long), stdout);
             printf("\n");
             pts = ts;
