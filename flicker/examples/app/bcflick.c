@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <locale.h>
 #include "callpal.h"
 #include "bitcoin.h"
 
@@ -41,6 +42,7 @@ unsigned char blob[10000];
 static void print_output(void);
 static int handle_results(void);
 static int get_blob(void);
+static int check_iv(const unsigned char *iv);
 
 
 int flicker_init(unsigned char *key, int keylen)
@@ -99,13 +101,11 @@ int flicker_encrypt(unsigned char *ctext, unsigned char const *ptext, unsigned p
     if ((rslt = handle_results()) < 0)
         return rslt;
 
-    if (rslt != 0)
-        return -100 - rslt;
-
     if ((ctextlen = pm_get_addr(tag_ciphertext, &outptr)) <  0)
         return -1;
-
     memcpy(ctext, outptr, ctextlen);
+
+    check_iv(iv);
 
     return ctextlen;
 }
@@ -153,8 +153,9 @@ int flicker_decrypt(unsigned char *ptext, unsigned char const *ctext, unsigned c
 
     if ((ptextlen = pm_get_addr(tag_plaintext, &outptr)) <  0)
         return -1;
-
     memcpy(ptext, outptr, ptextlen);
+
+    check_iv(iv);
 
     return ptextlen;
 }
@@ -192,12 +193,14 @@ static void print_output()
         int type = *outp++;
         int size = *outp++;
 
+        setlocale(LC_NUMERIC, "en_GB.utf8");
+
         if (type == 1) {
             fwrite(outp, 1, size, stdout);
 #if 0
         } else if (type == 2) {
             ts = *(unsigned long long *)outp;
-            printf(":%12lld  ", (pts==0)?0ll:(ts-pts));
+            printf(":%'13lld  ", (pts==0)?0ll:(ts-pts));
             fwrite((char *)outp+sizeof(long long), 1, size-sizeof(long long), stdout);
             printf("\n");
             pts = ts;
@@ -223,6 +226,7 @@ static int handle_results()
     rslt = *(int *)outptr;
     printf("result code from pal: %d\n", rslt);
 
+#if 0
     ptextlen = pm_get_addr(tag_plaintext, &outptr);
     ctextlen = pm_get_addr(tag_ciphertext, &outptr);
  
@@ -238,6 +242,7 @@ static int handle_results()
             printf("%02x", ((unsigned char *)outptr)[i]);
         printf("\n");
     }
+#endif
 
     if ((blobsize = pm_get_addr(tag_blob, &outptr)) < 0)
         return rslt;
@@ -255,6 +260,46 @@ static int handle_results()
     fclose(blobfile);
 
     return rslt;
+}
+
+
+static int check_iv(const unsigned char *iv)
+{
+    unsigned char md[32];
+    unsigned char ivv[32];
+    unsigned char *pkptr;
+    int pklen;
+
+    if ((pklen = pm_get_addr(tag_pk, (char **)&pkptr)) <  0)
+        return -1;
+    if (pklen != 65)
+        return -1;
+
+     SHA256(pkptr, pklen, md);
+     SHA256(md, sizeof(md), ivv);
+     if (memcmp(iv, ivv, sizeof(ivv)) == 0) {
+         printf("hash matches uncompressed\n");
+         return 0;
+     }
+
+     pkptr[0] = 0x02;
+     SHA256(pkptr, 33, md);
+     SHA256(md, sizeof(md), ivv);
+     if (memcmp(iv, ivv, sizeof(ivv)) == 0) {
+         printf("hash matches compressed\n");
+         return 0;
+     }
+
+     pkptr[0] = 0x03;
+     SHA256(pkptr, 33, md);
+     SHA256(md, sizeof(md), ivv);
+     if (memcmp(iv, ivv, sizeof(ivv)) == 0) {
+         printf("hash matches compressed\n");
+         return 0;
+     }
+
+     printf("HASH DOESN'T MATCH\n");
+     return -1;
 }
 
 

@@ -1,3 +1,29 @@
+/*
+ * bcmath.c: math for bitcoin
+ *
+ * Copyright (C) 2012 Hal Finney
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions, and the following disclaimer,
+ *    without modification.
+ * 2. The name of the author may not be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ */
+
 #include "tommath.h"
 
 #include <stdarg.h>
@@ -6,7 +32,13 @@
 #include "params.h"
 #include "string.h"
 #include "util.h"
-#include "bitcoin.h"
+
+
+#define PBITS       256
+#define PLEN        (PBITS/8)
+#define WINDOW      5
+#define WINMASK     ((1<<WINDOW)-1)
+#define NWINS       ((PBITS+WINDOW-1)/WINDOW)
 
 
 typedef struct {
@@ -16,7 +48,7 @@ typedef struct {
 
 
 /* 2**(5*i) * G */
-static unsigned char G[52][2][32] = {
+static uint8_t G[NWINS][2][PLEN] = {
    {{0x79,0xbe,0x66,0x7e,0xf9,0xdc,0xbb,0xac,0x55,0xa0,0x62,0x95,0xce,0x87,0x0b,0x07,
      0x02,0x9b,0xfc,0xdb,0x2d,0xce,0x28,0xd9,0x59,0xf2,0x81,0x5b,0x16,0xf8,0x17,0x98,},
     {0x48,0x3a,0xda,0x77,0x26,0xa3,0xc4,0x65,0x5d,0xa4,0xfb,0xfc,0x0e,0x11,0x08,0xa8,
@@ -279,7 +311,7 @@ static unsigned char G[52][2][32] = {
    },
 };
 
-static unsigned char p_data[32] = {
+static uint8_t p_data[PLEN] = {
     0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
     0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xfe,0xff,0xff,0xfc,0x2f,
 };
@@ -295,37 +327,251 @@ static int ecinit(ecpoint *a)
     return MP_OKAY;
 }
 
-#if 0
-static int ecadd(ecpoint *a, ecpoint *b, ecpoint *r, mp_int *p)
+static void ecclear(ecpoint *a)
 {
+    mp_clear_multi(a->x, a->y, NULL);
 }
-#endif
 
 
-
-int testmath(char *s)
+static int ecdbl(ecpoint *a, mp_int *p, ecpoint *r)
 {
-    mp_int mpi_, *mpi=&mpi_;
-    mp_int mpj_, *mpj=&mpj_;
-    mp_int mpk_, *mpk=&mpk_;
-    ecpoint _eca, *eca=&_eca;
+    mp_int _xx, *xx=&_xx;
+    mp_int _yy, *yy=&_yy;
+    mp_int _rx, *rx=&_rx;
+    int rslt;
 
-    ecinit(eca);
+    if (mp_iszero(a->x) && mp_iszero(a->y)) {
+        mp_zero(r->x);
+        mp_zero(r->y);
+        return MP_OKAY;
+    }
 
-    mp_init_multi(mpi, mpj, mpk, 0);
-    mp_read_unsigned_bin(mpi, G[0][1], 32);
-    mp_toradix(mpi, s, 16);
-    mp_read_unsigned_bin(mpj, p_data, 32);
+    if ((rslt=mp_init_multi(xx, yy, rx, NULL)) != MP_OKAY)
+        return rslt;
+
+    if ((rslt=mp_addmod(a->y, a->y, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_invmod(yy, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_sqrmod(a->x, p, xx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_addmod(xx, xx, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_addmod(rx, xx, p, xx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_mulmod(yy, xx, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_sqrmod(yy, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(rx, a->x, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(rx, a->x, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(a->x, rx, p, xx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_mulmod(xx, yy, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(yy, a->y, p, r->y)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_copy(rx, r->x)) != MP_OKAY)
+        return rslt;
+
+    mp_clear_multi(xx, yy, rx, NULL);
+    return MP_OKAY;
+}
+
+
+static int ecadd(ecpoint *a, ecpoint *b, mp_int *p, ecpoint *r)
+{
+    mp_int _xx, *xx=&_xx;
+    mp_int _yy, *yy=&_yy;
+    mp_int _rx, *rx=&_rx;
+    int rslt;
+
+    if (mp_iszero(a->x) && mp_iszero(a->y)) {
+        if ((rslt=mp_copy(b->x, r->x)) != MP_OKAY)
+            return rslt;
+        if ((rslt=mp_copy(b->y, r->y)) != MP_OKAY)
+            return rslt;
+        return MP_OKAY;
+    }
+    if (mp_iszero(b->x) && mp_iszero(b->y)) {
+        if ((rslt=mp_copy(a->x, r->x)) != MP_OKAY)
+            return rslt;
+        if ((rslt=mp_copy(a->y, r->y)) != MP_OKAY)
+            return rslt;
+        return MP_OKAY;
+    }
+
+    if (mp_cmp(a->x, b->x) == MP_EQ) {
+        if (mp_cmp(a->y, b->y) == MP_EQ) {
+            return ecdbl(a, p, r);
+        } else {
+            mp_zero(r->x);
+            mp_zero(r->y);
+            return MP_OKAY;
+        }
+    }
+
+    if ((rslt=mp_init_multi(xx, yy, rx, NULL)) != MP_OKAY)
+        return rslt;
+
+    if ((rslt=mp_submod(a->x, b->x, p, xx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_invmod(xx, p, xx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(a->y, b->y, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_mulmod(yy, xx, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_sqrmod(yy, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(rx, a->x, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(rx, b->x, p, rx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(a->x, rx, p, xx)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_mulmod(xx, yy, p, yy)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_submod(yy, a->y, p, r->y)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_copy(rx, r->x)) != MP_OKAY)
+        return rslt;
+
+    mp_clear_multi(xx, yy, rx, NULL);
+    return MP_OKAY;
+}
+
+
+/* r = eG */
+static int ecmul_g(mp_int *e, mp_int *p, ecpoint *r)
+{
+    ecpoint _g, *g=&_g;
+    ecpoint _bb, *bb=&_bb;
+    mp_int _ee, *ee=&_ee;
+    int edig[NWINS];
+    int i, j;
+    int rslt;
+
+    mp_init(ee);
+    ecinit(g);
+    ecinit(bb);
+
+    /* split e into 5 bit pieces */
+    if ((rslt=mp_copy(e, ee)) != MP_OKAY)
+        return rslt;
+    for (i=0; i<NWINS; i++) {
+        edig[i] = WINMASK & mp_get_int(ee);
+        if ((rslt=mp_div_2d(ee, 5, ee, NULL)) != MP_OKAY)
+            return rslt;
+    }
+
+    mp_zero(r->x); mp_zero(r->y);
+    ecinit(bb);
+
+    for (j=WINMASK; j>=1; j--) {
+        for (i=0; i<NWINS; i++) {
+            if (edig[i] == j) {
+                mp_read_unsigned_bin(g->x, G[i][0], PLEN);
+                mp_read_unsigned_bin(g->y, G[i][1], PLEN);
+                if ((rslt=ecadd(bb, g, p, bb)) != MP_OKAY)
+                    return rslt;
+            }
+        }
+        if ((rslt=ecadd(r, bb, p, r)) != MP_OKAY)
+            return rslt;
+    }
+
+    mp_clear(ee);
+    ecclear(g);
+    ecclear(bb);
+    memset(edig, 0, sizeof(edig));
+
+    return MP_OKAY;
+}
+
+
+int sectopub(uint8_t *sec, uint8_t *pub)
+{
+    mp_int _p, *p=&_p;
+    mp_int _s, *s=&_s;
+    ecpoint _y, *y=&_y;
+    int rslt;
+
+    ecinit(y);
+    mp_init_multi(p, s, 0);
+
+    mp_read_unsigned_bin(p, p_data, PLEN);
+    mp_read_unsigned_bin(s, sec, PLEN);
+    if ((rslt=ecmul_g(s, p, y)) != MP_OKAY)
+        return rslt;
+
+    memset(pub, 0, 2*PLEN);
+    mp_to_unsigned_bin(y->x, pub+(PLEN-mp_unsigned_bin_size(y->x)));
+    mp_to_unsigned_bin(y->y, pub+PLEN+(PLEN-mp_unsigned_bin_size(y->y)));
+
+    ecclear(y);
+    mp_clear_multi(p, s, 0);
+    return MP_OKAY;
+}
+
+
+int testmath(uint8_t *buf)
+{
+    mp_int _p, *p=&_p;
+    mp_int _e, *e=&_e;
+    ecpoint _g, *g=&_g;
+    ecpoint _gg, *gg=&_gg;
+    ecpoint _gh, *gh=&_gh;
+
+    ecinit(g);
+    ecinit(gg);
+    ecinit(gh);
+
+    mp_init_multi(p, e, 0);
+    mp_read_unsigned_bin(g->x, G[0][0], PLEN);
+    mp_read_unsigned_bin(g->y, G[0][1], PLEN);
+    mp_read_unsigned_bin(p, p_data, PLEN);
     record_timestamp("addmod start");
-    mp_addmod(mpi, mpi, mpj, mpk);
+    mp_addmod(g->x, g->x, p, gg->x);
     record_timestamp("addmod end");
+    record_timestamp("submod start");
+    mp_submod(gg->x, g->x, p, gg->x);
+    record_timestamp("submod end");
     record_timestamp("mulmod start");
-    mp_mulmod(mpi, mpi, mpj, mpk);
+    mp_mulmod(g->x, g->x, p, gg->x);
     record_timestamp("mulmod end");
     record_timestamp("invmod start");
-    mp_invmod(mpi, mpj, mpk);
+    mp_invmod(g->x, p, gg->x);
     record_timestamp("invmod end");
-    mp_clear_multi(mpi, mpj, mpk, 0);
+
+    ecadd(g, g, p, gg);
+    ecadd(gg, g, p, gg);
+
+    mp_set(e, 3);
+    ecmul_g(e, p, gg);
+    mp_to_unsigned_bin(gg->x, buf);
+    mp_to_unsigned_bin(gg->y, buf+PLEN);
+
+    record_timestamp("ecmul start");
+    ecmul_g(gg->x, p, gg);
+    record_timestamp("ecmul end");
+    ecclear(g);
+    ecclear(gg);
+    ecclear(gh);
+
+    mp_clear_multi(p, e, 0);
     return 0;
 }
 
+
+/*
+ * Local variables:
+ * mode: C
+ * c-set-style: "BSD"
+ * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
+ * End:
+ */
