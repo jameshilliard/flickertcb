@@ -63,6 +63,8 @@ static int find_counter(struct state *pstate);
 static int state_seal(struct state *pstate);
 static int state_unseal(struct state *pstate);
 
+extern int sectopub(uint8_t *sec, uint8_t *pub);
+
 int pal_main(void) __attribute__ ((section (".text.slb")));
 int pal_main(void)
 {
@@ -114,6 +116,14 @@ static int do_init_cmd(int cmd)
     uint8_t inblk[N_BLOCK], outblk[N_BLOCK];
     uint32_t keysize;
     int rslt;
+
+#if 0
+    extern int testmath(uint8_t *);
+    uint8_t buf[100];
+    testmath(buf);
+    log_event(LOG_LEVEL_INFORMATION, "testmath:\n");
+    dumphex(buf, 64);
+#endif
 
     if ((rslt = find_counter(&state)) != rslt_ok)
         return rslt;
@@ -172,6 +182,7 @@ static int do_encrypt(int cmd)
     int inlen;
     uint8_t *iv;
     uint8_t *ptxt;
+    uint8_t pk[65];
     int padlen;
 
     if ((rslt = state_unseal(&state)) != rslt_ok)
@@ -208,6 +219,13 @@ static int do_encrypt(int cmd)
 
     ptxt = (uint8_t *)inptr;
 
+    if (sectopub(ptxt, pk+1) != 0) {
+        log_event(LOG_LEVEL_ERROR, "error: sectopub failed\n");
+        return rslt_fail;
+    }
+    pk[0] = 0x04;
+    pm_append(tag_pk, (char *)pk, sizeof(pk));
+
     padlen = N_BLOCK - (inlen % N_BLOCK);
     memcpy(padded, ptxt, inlen);
     memset(padded+inlen, padlen, padlen);
@@ -229,6 +247,7 @@ static int do_decrypt(int cmd)
     int inlen;
     uint8_t *iv;
     uint8_t *ctxt;
+    uint8_t pk[65];
     int padlen;
     int i;
     int duplicate = false;
@@ -319,6 +338,13 @@ static int do_decrypt(int cmd)
     }
 
     pm_append(tag_plaintext, (char *)padded, inlen-padlen);
+
+    if (sectopub(padded, pk+1) != 0) {
+        log_event(LOG_LEVEL_ERROR, "error: sectopub failed\n");
+        return rslt_fail;
+    }
+    pk[0] = 0x04;
+    pm_append(tag_pk, (char *)pk, sizeof(pk));
 
     if (!duplicate) {
         for (i=1; i<NMEM; i++)

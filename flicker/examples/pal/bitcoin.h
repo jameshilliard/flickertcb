@@ -36,6 +36,7 @@ enum {
     tag_iv,
     tag_plaintext,
     tag_ciphertext,
+    tag_pk,
 };
 
 enum {

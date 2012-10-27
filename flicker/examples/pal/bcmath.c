@@ -32,7 +32,6 @@
 #include "params.h"
 #include "string.h"
 #include "util.h"
-#include "bitcoin.h"
 
 
 #define PBITS       256
@@ -49,7 +48,7 @@ typedef struct {
 
 
 /* 2**(5*i) * G */
-static unsigned char G[NWINS][2][PLEN] = {
+static uint8_t G[NWINS][2][PLEN] = {
    {{0x79,0xbe,0x66,0x7e,0xf9,0xdc,0xbb,0xac,0x55,0xa0,0x62,0x95,0xce,0x87,0x0b,0x07,
      0x02,0x9b,0xfc,0xdb,0x2d,0xce,0x28,0xd9,0x59,0xf2,0x81,0x5b,0x16,0xf8,0x17,0x98,},
     {0x48,0x3a,0xda,0x77,0x26,0xa3,0xc4,0x65,0x5d,0xa4,0xfb,0xfc,0x0e,0x11,0x08,0xa8,
@@ -312,7 +311,7 @@ static unsigned char G[NWINS][2][PLEN] = {
    },
 };
 
-static unsigned char p_data[PLEN] = {
+static uint8_t p_data[PLEN] = {
     0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
     0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xfe,0xff,0xff,0xfc,0x2f,
 };
@@ -493,8 +492,32 @@ static int ecmul_g(mp_int *e, mp_int *p, ecpoint *r)
 }
 
 
+int sectopub(uint8_t *sec, uint8_t *pub)
+{
+    mp_int _p, *p=&_p;
+    mp_int _s, *s=&_s;
+    ecpoint _y, *y=&_y;
+    int rslt;
 
-int testmath(unsigned char *buf)
+    ecinit(y);
+    mp_init_multi(p, s, 0);
+
+    mp_read_unsigned_bin(p, p_data, PLEN);
+    mp_read_unsigned_bin(s, sec, PLEN);
+    if ((rslt=ecmul_g(s, p, y)) != MP_OKAY)
+        return rslt;
+
+    memset(pub, 0, 2*PLEN);
+    mp_to_unsigned_bin(y->x, pub+(PLEN-mp_unsigned_bin_size(y->x)));
+    mp_to_unsigned_bin(y->y, pub+PLEN+(PLEN-mp_unsigned_bin_size(y->y)));
+
+    ecclear(y);
+    mp_clear_multi(p, s, 0);
+    return MP_OKAY;
+}
+
+
+int testmath(uint8_t *buf)
 {
     mp_int _p, *p=&_p;
     mp_int _e, *e=&_e;
@@ -531,6 +554,9 @@ int testmath(unsigned char *buf)
     mp_to_unsigned_bin(gg->x, buf);
     mp_to_unsigned_bin(gg->y, buf+PLEN);
 
+    record_timestamp("ecmul start");
+    ecmul_g(gg->x, p, gg);
+    record_timestamp("ecmul end");
     ecclear(g);
     ecclear(gg);
     ecclear(gh);
