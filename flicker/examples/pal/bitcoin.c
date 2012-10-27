@@ -58,7 +58,7 @@ uint8_t state2[0];
 static int do_init_cmd(int cmd);
 static int do_encrypt(int cmd);
 static int do_decrypt(int cmd);
-static void dumphex(uint8_t *bytes, int len);
+//static void dumphex(uint8_t *bytes, int len);
 static int find_counter(struct state *pstate);
 static int state_seal(struct state *pstate);
 static int state_unseal(struct state *pstate);
@@ -225,6 +225,8 @@ static int do_encrypt(int cmd)
     }
     pk[0] = 0x04;
     pm_append(tag_pk, (char *)pk, sizeof(pk));
+    //log_event(LOG_LEVEL_INFORMATION, "pk:\n");
+    //dumphex(pk, sizeof(pk));
 
     padlen = N_BLOCK - (inlen % N_BLOCK);
     memcpy(padded, ptxt, inlen);
@@ -287,8 +289,8 @@ static int do_decrypt(int cmd)
 
     ctxt = (uint8_t *)inptr;
 
-    log_event(LOG_LEVEL_INFORMATION, "ctxt:\n");
-    dumphex(ctxt, inlen);
+    //log_event(LOG_LEVEL_INFORMATION, "ctxt:\n");
+    //dumphex(ctxt, inlen);
 
     sha1_buffer(ctxt, inlen, md);
 
@@ -345,6 +347,8 @@ static int do_decrypt(int cmd)
     }
     pk[0] = 0x04;
     pm_append(tag_pk, (char *)pk, sizeof(pk));
+    //log_event(LOG_LEVEL_INFORMATION, "pk:\n");
+    //dumphex(pk, sizeof(pk));
 
     if (!duplicate) {
         for (i=1; i<NMEM; i++)
@@ -613,6 +617,7 @@ static int state_unseal(struct state *pstate)
 }
 
 
+#if 0
 static void dumphex(uint8_t *bytes, int len)
 {
     int i;
@@ -623,6 +628,7 @@ static void dumphex(uint8_t *bytes, int len)
     if(len%16)
         log_event(LOG_LEVEL_INFORMATION, "\n");
 }
+#endif
 
 
 /*
