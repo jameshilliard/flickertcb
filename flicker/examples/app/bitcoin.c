@@ -32,7 +32,7 @@
 #include "bitcoin.h"
 
 #define SINIT_FILE      "/boot/sinit-current.bin"
-#define PAL_FILE        "../pal/bitcoin.bin"
+#define PAL_FILE        "../pal/bcflick.bin"
 #define BLOB_FILE       "bitcoin.blob"
 #define BLOB_BAK_FILE   "bitcoin.blob.bak"
 
