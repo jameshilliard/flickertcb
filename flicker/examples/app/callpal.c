@@ -1,7 +1,7 @@
 /*
  * callpal.c: load and run pal
  *
- * Copyright (C) 2006-2011 Jonathan M. McCune
+ * Copyright (C) 2012 Hal Finney
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
