@@ -43,7 +43,7 @@ BUILD_DEPS := $(CURDIR)/Makefile
 
 # Put projects here
 
-all: tpal.bin tctr.bin rlimit.bin bitcoin.bin
+all: tpal.bin tctr.bin rlimit.bin bcflick.bin
 
 #Put obj files and build commands here
 
@@ -62,10 +62,10 @@ rlimit.elf: $(PAL_OBJS) $(LINKFILE) $(RLIMIT_OBJS)
 	$(LD) $(LDFLAGS) -T $(LINKFILE) -N $(PAL_OBJS) $(RLIMIT_OBJS) $(GCC_LIBS) \
 	    -o $(@D)/$(@F)
 
-BITCOIN_OBJS := bitcoin.o aes.o cbcmode.o bcmath.o libtommath/libtommath.a
-bitcoin.elf: $(PAL_OBJS) $(LINKFILE) $(BITCOIN_OBJS)
-	$(LD) $(LDFLAGS) -T $(LINKFILE) -N $(PAL_OBJS) $(BITCOIN_OBJS) $(GCC_LIBS) \
-	    -o $(@D)/$(@F) -M -Map=bitcoin.map
+BCFLICK_OBJS := bitcoin.o aes.o cbcmode.o bcmath.o sha256.o libtommath/libtommath.a
+bcflick.elf: $(PAL_OBJS) $(LINKFILE) $(BCFLICK_OBJS)
+	$(LD) $(LDFLAGS) -T $(LINKFILE) -N $(PAL_OBJS) $(BCFLICK_OBJS) $(GCC_LIBS) \
+	    -o $(@D)/$(@F) -M -Map=bcflick.map
 
 %.bin: %.elf
 	$(OBJCOPY) -O binary $< $@

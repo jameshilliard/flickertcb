@@ -32,73 +32,79 @@
 #include "bitcoin.h"
 
 #define SINIT_FILE      "/boot/sinit-current.bin"
-#define PAL_FILE        "../pal/bitcoin.bin"
-#define BLOB_FILE       "bcflick.blob"
+#define PAL_FILE        "%s/bcflick.bin"
+#define BLOB_FILE       "%s/bcflick.blob"
 #define SECONDS         300
 
 unsigned char blob[10000];
 
 /* forward references */
 static void print_output(void);
-static int handle_results(void);
-static int get_blob(void);
+static int handle_results(const char *datadir);
+static int get_blob(const char *datadir);
 static int check_iv(const unsigned char *iv);
 
 
-int flicker_init(unsigned char *key, int keylen)
+int flicker_init(unsigned char *key, int keylen, const char *datadir)
 {
     int cmd = cmd_init;
     int secs = SECONDS;
+    char palfile[PATH_MAX];
     int rslt;
 
     /* pal inbuf is our outbuf */
     pm_init(outbuf, sizeof(outbuf), inbuf, sizeof(inbuf));
 
+    sprintf(palfile, PAL_FILE, datadir);
+
     pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
     pm_append(tag_interval, (char *)&secs, sizeof(secs));
     pm_append(tag_key, key, 32);
 
-    if (callpal(SINIT_FILE, PAL_FILE, inbuf, sizeof(inbuf)-pm_avail(),
+    if (callpal(SINIT_FILE, palfile, inbuf, sizeof(inbuf)-pm_avail(),
                 outbuf, sizeof(outbuf)) < 0) {
-        fprintf(stderr, "pal call failed for %s\n", PAL_FILE);
+        fprintf(stderr, "pal call failed for %s\n", palfile);
         return -2;
     }
     
     print_output();
-    if ((rslt = handle_results()) < 0)
+    if ((rslt = handle_results(datadir)) < 0)
         return rslt;
 
     return rslt;
 }
 
 int flicker_encrypt(unsigned char *ctext, unsigned char const *ptext, unsigned ptsize,
-            unsigned char const *iv)
+            unsigned char const *iv, const char *datadir)
 {
     int cmd = cmd_encrypt;
     int ctextlen;
     char *outptr;
+    char palfile[PATH_MAX];
     int rslt;
     static int cnt;
 
     printf("flicker_encrypt called %d times\n", ++cnt);
 
+    sprintf(palfile, PAL_FILE, datadir);
+
     /* pal inbuf is our outbuf */
     pm_init(outbuf, sizeof(outbuf), inbuf, sizeof(inbuf));
 
-    if ((rslt = get_blob()) < 0)
+    if ((rslt = get_blob(datadir)) < 0)
         return rslt;
     pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
     pm_append(tag_iv, (char *)iv, 16);
     pm_append(tag_plaintext, (char *)ptext, ptsize);
 
-    if (callpal(SINIT_FILE, PAL_FILE, inbuf, sizeof(inbuf)-pm_avail(),
+    if (callpal(SINIT_FILE, palfile, inbuf, sizeof(inbuf)-pm_avail(),
                 outbuf, sizeof(outbuf)) < 0) {
-        fprintf(stderr, "pal call failed for %s\n", PAL_FILE);
+        fprintf(stderr, "pal call failed for %s\n", palfile);
         return -2;
     }
     
     print_output();
-    if ((rslt = handle_results()) < 0)
+    if ((rslt = handle_results(datadir)) < 0)
         return rslt;
 
     if ((ctextlen = pm_get_addr(tag_ciphertext, &outptr)) <  0)
@@ -111,32 +117,35 @@ int flicker_encrypt(unsigned char *ctext, unsigned char const *ptext, unsigned p
 }
 
 int flicker_decrypt(unsigned char *ptext, unsigned char const *ctext, unsigned ctsize,
-            unsigned char const *iv)
+            unsigned char const *iv, const char *datadir)
 {
     int cmd = cmd_decrypt;
     int ptextlen;
     int delay;
+    char palfile[PATH_MAX];
     char *outptr;
     int rslt;
 
     /* pal inbuf is our outbuf */
     pm_init(outbuf, sizeof(outbuf), inbuf, sizeof(inbuf));
 
+    sprintf(palfile, PAL_FILE, datadir);
+
     for (;;) {
-            if ((rslt = get_blob()) < 0)
+            if ((rslt = get_blob(datadir)) < 0)
             return rslt;
         pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
         pm_append(tag_iv, (char *)iv, 16);
         pm_append(tag_ciphertext, (char *)ctext, ctsize);
 
-        if (callpal(SINIT_FILE, PAL_FILE, inbuf, sizeof(inbuf)-pm_avail(),
+        if (callpal(SINIT_FILE, palfile, inbuf, sizeof(inbuf)-pm_avail(),
                     outbuf, sizeof(outbuf)) < 0) {
-            fprintf(stderr, "pal call failed for %s\n", PAL_FILE);
+            fprintf(stderr, "pal call failed for %s\n", palfile);
             return -2;
         }
         
         print_output();
-        if ((rslt = handle_results()) < 0)
+        if ((rslt = handle_results(datadir)) < 0)
             return rslt;
 
         if (pm_get_addr(tag_delay, &outptr) < 0)
@@ -160,13 +169,16 @@ int flicker_decrypt(unsigned char *ptext, unsigned char const *ctext, unsigned c
     return ptextlen;
 }
 
-static int get_blob()
+static int get_blob(const char *datadir)
 {
     FILE *blobfile;
     int blobsize;
+    char blobfilename[PATH_MAX];
 
-    if ((blobfile = fopen(BLOB_FILE, "rb")) == NULL) {
-        fprintf(stderr, "unable to open blob file %s\n", BLOB_FILE);
+    sprintf(blobfilename, BLOB_FILE, datadir);
+
+    if ((blobfile = fopen(blobfilename, "rb")) == NULL) {
+        fprintf(stderr, "unable to open blob file %s\n", blobfilename);
         return -1;
     }
 
@@ -210,12 +222,13 @@ static void print_output()
     }
 }
 
-static int handle_results()
+static int handle_results(const char *datadir)
 {
     char *outptr;
     FILE *blobfile;
     int blobsize;
     int ptextlen, ctextlen;
+    char blobfilename[PATH_MAX];
     int rslt;
 
     if (pm_get_addr(tag_rslt, &outptr) < 0) {
@@ -244,11 +257,13 @@ static int handle_results()
     }
 #endif
 
+    sprintf(blobfilename, BLOB_FILE, datadir);
+
     if ((blobsize = pm_get_addr(tag_blob, &outptr)) < 0)
         return rslt;
 
-    if ((blobfile = fopen(BLOB_FILE, "wb")) == NULL) {
-        fprintf(stderr, "unable to open for writing blob file %s\n", BLOB_FILE);
+    if ((blobfile = fopen(blobfilename, "wb")) == NULL) {
+        fprintf(stderr, "unable to open for writing blob file %s\n", blobfilename);
         return -1;
     }
 
