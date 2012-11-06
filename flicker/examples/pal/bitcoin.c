@@ -143,11 +143,13 @@ static int do_init_cmd(int cmd)
     aes_encrypt_256(inblk, outblk, state.key, state.dkey);
 
     keysize = sizeof(state.state2_key);
+    record_timestamp("get_random start");
     if (tpm_get_random(2, state.state2_key, &keysize) != 0
             || keysize != sizeof(state.state2_key)) {
         log_event(LOG_LEVEL_ERROR, "error: get_random failed\n");
         return rslt_fail;
     }
+    record_timestamp("get_random end");
     aes_encrypt_256(inblk, outblk, state.state2_key, state.state2_dkey);
 
     /* iv */
