@@ -43,6 +43,8 @@ enum {
     cmd_init,
     cmd_encrypt,
     cmd_decrypt,
+    cmd_keygen_comp,
+    cmd_keygen_uncomp,
 };
 
 enum {

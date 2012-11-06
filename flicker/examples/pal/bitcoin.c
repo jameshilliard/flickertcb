@@ -34,8 +34,9 @@
 #include "util.h"
 #include "aes.h"
 #include "cbcmode.h"
+#include "sha256.h"
 #include "bitcoin.h"
- 
+
 #define     NMEM        5
 #define     MYCOUNTER   "BITC"
 
@@ -58,10 +59,12 @@ uint8_t state2[0];
 static int do_init_cmd(int cmd);
 static int do_encrypt(int cmd);
 static int do_decrypt(int cmd);
+static int do_keygen(int cmd);
 //static void dumphex(uint8_t *bytes, int len);
 static int find_counter(struct state *pstate);
 static int state_seal(struct state *pstate);
 static int state_unseal(struct state *pstate);
+static void bchash(void *inptr, uint32_t len, uint8_t *md);
 
 extern int sectopub(uint8_t *sec, uint8_t *pub);
 
@@ -89,6 +92,10 @@ int pal_main(void)
             break;
         case cmd_decrypt:
             rslt = do_decrypt(cmd);
+            break;
+        case cmd_keygen_uncomp:
+        case cmd_keygen_comp:
+            rslt = do_keygen(cmd);
             break;
         default:
             log_event(LOG_LEVEL_ERROR, "error: unknown command %d\n", cmd);
@@ -175,6 +182,7 @@ static int do_init_cmd(int cmd)
 
 
 static uint8_t padded[3*N_BLOCK], obuf[3*N_BLOCK];
+static uint8_t md256[32];
 
 static int do_encrypt(int cmd)
 {
@@ -235,11 +243,17 @@ static int do_encrypt(int cmd)
     memset(padded+inlen, padlen, padlen);
 
     aes_cbc_encrypt(obuf, padded, (inlen+padlen)/N_BLOCK, iv, state.key);
-
     pm_append(tag_ciphertext, (char *)obuf, inlen+padlen);
+
+    pk[0] = 0x02 + (pk[64]&1);
+    bchash(pk, 33, md256);
+    if (memcmp(md256, iv, N_BLOCK) != 0) {
+        log_event(LOG_LEVEL_WARNING, "WARNING: IV VERIFY FAILED\n");
+    }
 
     return rslt;
 }
+
 
 static int do_decrypt(int cmd)
 {
@@ -352,6 +366,12 @@ static int do_decrypt(int cmd)
     //log_event(LOG_LEVEL_INFORMATION, "pk:\n");
     //dumphex(pk, sizeof(pk));
 
+    pk[0] = 0x02 + (pk[64]&1);
+    bchash(pk, 33, md256);
+    if (memcmp(md256, iv, N_BLOCK) != 0) {
+        log_event(LOG_LEVEL_WARNING, "WARNING: IV VERIFY FAILED\n");
+    }
+
     if (!duplicate) {
         for (i=1; i<NMEM; i++)
             memcpy(state.ct_mem[i-1], state.ct_mem[i], SHA_DIGEST_LENGTH);
@@ -367,6 +387,63 @@ static int do_decrypt(int cmd)
         if ((rslt = state_seal(&state)) != rslt_ok)
             return rslt;
     }
+
+    return rslt;
+}
+
+
+static int do_keygen(int cmd)
+{
+    tpm_counter_value_t counter;
+    int rslt = rslt_ok;
+    int inlen;
+    uint8_t pk[65];
+    uint8_t *iv;
+    uint32_t keysize;
+    int padlen;
+    int pklen;
+
+    if ((rslt = state_unseal(&state)) != rslt_ok)
+        return rslt;
+
+    tpm_read_counter(2, state.counter_id, &counter);
+    if (counter.counter != state.counter) {
+        log_event(LOG_LEVEL_ERROR, "anti rollback counter error: %d should be %d\n",
+                state.counter, counter.counter );
+        return rslt_inconsistentstate;
+    }
+
+    inlen = keysize = 32;
+    if (tpm_get_random(2, padded, &keysize) != 0
+            || keysize != inlen) {
+        log_event(LOG_LEVEL_ERROR, "error: get_random failed\n");
+        return rslt_fail;
+    }
+
+    if (sectopub(padded, pk+1) != 0) {
+        log_event(LOG_LEVEL_ERROR, "error: sectopub failed\n");
+        return rslt_fail;
+    }
+    //log_event(LOG_LEVEL_INFORMATION, "pk:\n");
+    //dumphex(pk, sizeof(pk));
+
+    pk[0] = 0x04;
+    pklen = sizeof(pk);
+    if (cmd == cmd_keygen_comp) {
+        pklen = 33;
+        pk[0] = 0x02 + (pk[64]&1);
+    }
+    bchash(pk, pklen, md256);
+    iv = md256;
+
+    pm_append(tag_pk, (char *)pk, pklen);
+
+    padlen = N_BLOCK - (inlen % N_BLOCK);
+    memset(padded+inlen, padlen, padlen);
+
+    aes_cbc_encrypt(obuf, padded, (inlen+padlen)/N_BLOCK, iv, state.key);
+
+    pm_append(tag_ciphertext, (char *)obuf, inlen+padlen);
 
     return rslt;
 }
@@ -631,6 +708,15 @@ static void dumphex(uint8_t *bytes, int len)
         log_event(LOG_LEVEL_INFORMATION, "\n");
 }
 #endif
+
+
+static void bchash(void *inptr, uint32_t len, uint8_t *md)
+{
+    uint8_t _md[32];
+    sha256(inptr, len, _md);
+    sha256(_md, sizeof(_md), md);
+}
+
 
 
 /*

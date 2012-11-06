@@ -116,6 +116,48 @@ int flicker_encrypt(unsigned char *ctext, unsigned char const *ptext, unsigned p
     return ctextlen;
 }
 
+int flicker_keygen(int compressed, unsigned char *ctext, unsigned char *pk, const char *datadir)
+{
+    int cmd = compressed ? cmd_keygen_comp : cmd_keygen_uncomp;
+    int ctextlen;
+    int pklen;
+    char *outptr;
+    char palfile[PATH_MAX];
+    int rslt;
+    static int cnt;
+
+    printf("flicker_keygen called %d times\n", ++cnt);
+
+    sprintf(palfile, PAL_FILE, datadir);
+
+    /* pal inbuf is our outbuf */
+    pm_init(outbuf, sizeof(outbuf), inbuf, sizeof(inbuf));
+
+    if ((rslt = get_blob(datadir)) < 0)
+        return rslt;
+    pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
+
+    if (callpal(SINIT_FILE, palfile, inbuf, sizeof(inbuf)-pm_avail(),
+                outbuf, sizeof(outbuf)) < 0) {
+        fprintf(stderr, "pal call failed for %s\n", palfile);
+        return -2;
+    }
+    
+    print_output();
+    if ((rslt = handle_results(datadir)) < 0)
+        return rslt;
+
+    if ((ctextlen = pm_get_addr(tag_ciphertext, &outptr)) <  0)
+        return -1;
+    memcpy(ctext, outptr, ctextlen);
+
+    if ((pklen = pm_get_addr(tag_pk, &outptr)) <  0)
+        return -1;
+    memcpy(pk, outptr, pklen);
+
+    return ctextlen;
+}
+
 int flicker_decrypt(unsigned char *ptext, unsigned char const *ctext, unsigned ctsize,
             unsigned char const *iv, const char *datadir)
 {
