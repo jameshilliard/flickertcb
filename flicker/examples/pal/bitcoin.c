@@ -124,12 +124,9 @@ static int do_init_cmd(int cmd)
     uint32_t keysize;
     int rslt;
 
-#if 0
-    extern int testmath(uint8_t *);
-    uint8_t buf[100];
-    testmath(buf);
-    log_event(LOG_LEVEL_INFORMATION, "testmath:\n");
-    dumphex(buf, 64);
+#if 1
+    extern int testmath(void);
+    testmath();
 #endif
 
     if ((rslt = find_counter(&state)) != rslt_ok)
@@ -479,7 +476,9 @@ static int find_counter(struct state *pstate)
     reverse_copy((uint8_t *)&ctrid, caparea, sizeof(ctrid));
     log_event(LOG_LEVEL_INFORMATION, "active ctrid: 0x%x\n", ctrid);
 
+    record_timestamp("increment counter start");
     if (tpm_increment_counter(2, ctrid, &ctr_authdata, &counter) == 0) {
+        record_timestamp("increment counter end");
         //log_event(LOG_LEVEL_INFORMATION, "label: %c%c%c%c\n", counter.label[0],
                 //counter.label[1], counter.label[2], counter.label[3]);
         if (memcmp(counter.label, MYCOUNTER, sizeof(counter.label)) == 0) {
@@ -531,7 +530,9 @@ static int find_counter(struct state *pstate)
         log_event(LOG_LEVEL_INFORMATION, "label: %c%c%c%c\n", counter.label[0],
                 counter.label[1], counter.label[2], counter.label[3]);
         if (memcmp(counter.label, MYCOUNTER, sizeof(counter.label)) == 0) {
+            record_timestamp("increment counter start");
             if (tpm_increment_counter(2, ctrid, &ctr_authdata, &counter) == 0) {
+                record_timestamp("increment counter end");
                 log_event(LOG_LEVEL_INFORMATION, "this ctrid successful\n");
                 pstate->counter_id = ctrid;
                 free(chandles);

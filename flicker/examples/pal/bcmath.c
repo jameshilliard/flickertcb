@@ -517,7 +517,7 @@ int sectopub(uint8_t *sec, uint8_t *pub)
 }
 
 
-int testmath(uint8_t *buf)
+int testmath(void)
 {
     mp_int _p, *p=&_p;
     mp_int _e, *e=&_e;
@@ -547,12 +547,9 @@ int testmath(uint8_t *buf)
     record_timestamp("invmod end");
 
     ecadd(g, g, p, gg);
+    record_timestamp("ecadd start");
     ecadd(gg, g, p, gg);
-
-    mp_set(e, 3);
-    ecmul_g(e, p, gg);
-    mp_to_unsigned_bin(gg->x, buf);
-    mp_to_unsigned_bin(gg->y, buf+PLEN);
+    record_timestamp("ecadd end");
 
     record_timestamp("ecmul start");
     ecmul_g(gg->x, p, gg);
