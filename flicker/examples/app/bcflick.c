@@ -34,7 +34,6 @@
 #define SINIT_FILE      "/boot/sinit-current.bin"
 #define PAL_FILE        "%s/bcflick.bin"
 #define BLOB_FILE       "%s/bcflick.blob"
-#define SECONDS         300
 
 unsigned char blob[10000];
 
@@ -45,10 +44,9 @@ static int get_blob(const char *datadir);
 static int check_iv(const unsigned char *iv);
 
 
-int flicker_init(unsigned char *key, int keylen, const char *datadir)
+int flicker_init(unsigned char *key, int keylen, int secs, const char *datadir)
 {
     int cmd = cmd_init;
-    int secs = SECONDS;
     char palfile[PATH_MAX];
     int rslt;
 

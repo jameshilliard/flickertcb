@@ -164,6 +164,7 @@ static int do_init_cmd(int cmd)
         log_event(LOG_LEVEL_ERROR, "error: no interval\n");
         return rslt_badparams;
     }
+    log_event(LOG_LEVEL_INFORMATION, "interval: %d\n", *(int *)inptr);
 
     state.interval_secs = *(int *)inptr;
     tpm_read_current_ticks(2, &ticks);
