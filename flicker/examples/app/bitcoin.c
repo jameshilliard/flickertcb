@@ -31,7 +31,6 @@
 #include "callpal.h"
 #include "bitcoin.h"
 
-#define SINIT_FILE      "/boot/sinit-current.bin"
 #define PAL_FILE        "../pal/bcflick.bin"
 #define BLOB_FILE       "bitcoin.blob"
 #define BLOB_BAK_FILE   "bitcoin.blob.bak"
@@ -104,7 +103,7 @@ int main(int ac, char **av)
         userr(av[0]);
     }
 
-    if (callpal(SINIT_FILE, PAL_FILE, inbuf, sizeof(inbuf)-pm_avail(),
+    if (callpal(PAL_FILE, inbuf, sizeof(inbuf)-pm_avail(),
                 outbuf, sizeof(outbuf)) < 0) {
         fprintf(stderr, "pal call failed for %s\n", PAL_FILE);
         return 2;

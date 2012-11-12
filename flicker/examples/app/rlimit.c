@@ -30,7 +30,6 @@
 #include "callpal.h"
 #include "rlimit.h"
 
-#define SINIT_FILE      "/boot/sinit-current.bin"
 #define PAL_FILE        "../pal/rlimit.bin"
 #define BLOB_FILE       "rlimit.blob"
 #define BLOB_BAK_FILE   "rlimit.blob.bak"
@@ -68,7 +67,7 @@ int main(int ac, char **av)
         userr(av[0]);
     }
 
-    if (callpal(SINIT_FILE, PAL_FILE, inbuf, sizeof(inbuf)-pm_avail(),
+    if (callpal(PAL_FILE, inbuf, sizeof(inbuf)-pm_avail(),
                 outbuf, sizeof(outbuf)) < 0) {
         fprintf(stderr, "pal call failed for %s\n", PAL_FILE);
         return 2;

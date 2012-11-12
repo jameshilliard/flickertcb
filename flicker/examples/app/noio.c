@@ -27,14 +27,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include "params.h"
-
-#define SINIT_FILE  "/boot/sinit-current.bin"
-
-unsigned char inbuf[MAX_OUTPUT_PARAM_SIZE];
-unsigned char outbuf[MAX_OUTPUT_PARAM_SIZE];
-
-extern int callpal(char *sinitname, char *palname, void *inbuf, size_t inlen,
-            void *outbuf, size_t outlen);
+#include "callpal.h"
 
 static void print_output(void);
 
@@ -48,7 +41,7 @@ int main(int ac, char **av)
     }
     pal = av[1];
 
-    if (callpal(SINIT_FILE, pal, inbuf, sizeof(int), outbuf, sizeof(outbuf)) < 0) {
+    if (callpal(pal, inbuf, sizeof(int), outbuf, sizeof(outbuf)) < 0) {
         fprintf(stderr, "pal call failed for %s\n", pal);
         return 2;
     }

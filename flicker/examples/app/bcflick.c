@@ -31,7 +31,6 @@
 #include "callpal.h"
 #include "bitcoin.h"
 
-#define SINIT_FILE      "/boot/sinit-current.bin"
 #define PAL_FILE        "%s/bcflick.bin"
 #define BLOB_FILE       "%s/bcflick.blob"
 
@@ -59,7 +58,7 @@ int flicker_init(unsigned char *key, int keylen, int secs, const char *datadir)
     pm_append(tag_interval, (char *)&secs, sizeof(secs));
     pm_append(tag_key, key, 32);
 
-    if (callpal(SINIT_FILE, palfile, inbuf, sizeof(inbuf)-pm_avail(),
+    if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
                 outbuf, sizeof(outbuf)) < 0) {
         fprintf(stderr, "pal call failed for %s\n", palfile);
         return -2;
@@ -95,7 +94,7 @@ int flicker_encrypt(unsigned char *ctext, unsigned char const *ptext, unsigned p
     pm_append(tag_iv, (char *)iv, 16);
     pm_append(tag_plaintext, (char *)ptext, ptsize);
 
-    if (callpal(SINIT_FILE, palfile, inbuf, sizeof(inbuf)-pm_avail(),
+    if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
                 outbuf, sizeof(outbuf)) < 0) {
         fprintf(stderr, "pal call failed for %s\n", palfile);
         return -2;
@@ -135,7 +134,7 @@ int flicker_keygen(int compressed, unsigned char *ctext, unsigned char *pk, cons
         return rslt;
     pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
 
-    if (callpal(SINIT_FILE, palfile, inbuf, sizeof(inbuf)-pm_avail(),
+    if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
                 outbuf, sizeof(outbuf)) < 0) {
         fprintf(stderr, "pal call failed for %s\n", palfile);
         return -2;
@@ -178,7 +177,7 @@ int flicker_decrypt(unsigned char *ptext, unsigned char const *ctext, unsigned c
         pm_append(tag_iv, (char *)iv, 16);
         pm_append(tag_ciphertext, (char *)ctext, ctsize);
 
-        if (callpal(SINIT_FILE, palfile, inbuf, sizeof(inbuf)-pm_avail(),
+        if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
                     outbuf, sizeof(outbuf)) < 0) {
             fprintf(stderr, "pal call failed for %s\n", palfile);
             return -2;

@@ -31,8 +31,7 @@
 extern unsigned char inbuf[MAX_INPUT_PARAM_SIZE];
 extern unsigned char outbuf[MAX_OUTPUT_PARAM_SIZE];
 
-extern int callpal(char *sinitname, char *palname, void *inbuf, size_t inlen,
-            void *outbuf, size_t outlen);
+int callpal(char *palname, void *inbuf, size_t inlen, void *outbuf, size_t outlen);
 
 #endif /* _CALLPAL_H_ */
 

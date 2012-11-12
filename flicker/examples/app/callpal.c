@@ -25,16 +25,19 @@
  */
 
 #include <stdio.h>
-#include <stdarg.h>
+#include </usr/include/string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <regex.h>
 #include "callpal.h"
 
 #define FLICKER_CTRL    "/sys/kernel/flicker/control"
 #define FLICKER_DATA    "/sys/kernel/flicker/data"
 #define CPU_CTRL        "/sys/devices/system/cpu"
+#define SINIT_DIR       "/boot/"
+#define SINIT_MATCH     "SINIT"
 
 unsigned char inbuf[MAX_INPUT_PARAM_SIZE];
 unsigned char outbuf[MAX_OUTPUT_PARAM_SIZE];
@@ -45,9 +48,9 @@ void dump_bytes(){}
 
 static int copyfile(int fd_from, int fd_to);
 static int one_cpu(int turnon);
+static int sinit_open();
 
-int callpal(char *sinitname, char *palname, void *inbuf, size_t inlen,
-            void *outbuf, size_t outlen)
+int callpal(char *palname, void *inbuf, size_t inlen, void *outbuf, size_t outlen)
 {
     int fd_ctrl=-1, fd_data=-1;
     int fd=-1;
@@ -61,20 +64,17 @@ int callpal(char *sinitname, char *palname, void *inbuf, size_t inlen,
         goto error;
     }
 
-    fd = open(sinitname, O_RDONLY);
-    if (fd < 0) {
-        fprintf(stderr, "error opening file %s\n", sinitname);
-        goto error;
+    fd = sinit_open();
+    if (fd >= 0) {
+        write(fd_ctrl, "A", 1);
+        if (copyfile(fd, fd_data) < 0) {
+            fprintf(stderr, "error transferring sinit file\n");
+            goto error;
+        }
+        close(fd);
+        fd = -1;
+        write(fd_ctrl, "a", 1);
     }
-
-    write(fd_ctrl, "A", 1);
-    if (copyfile(fd, fd_data) < 0) {
-        fprintf(stderr, "error transferring file %s\n", sinitname);
-        goto error;
-    }
-    close(fd);
-    fd = -1;
-    write(fd_ctrl, "a", 1);
 
     fd = open(palname, O_RDONLY);
     if (fd < 0) {
@@ -209,7 +209,36 @@ static int one_cpu(int turnon)
         }
     }
 
+    closedir(dir);
     return 0;
+}
+
+static int sinit_open()
+{
+    DIR *dir;
+    struct dirent *dirent;
+    int fd = -1;
+    char fname[PATH_MAX];
+    regex_t regex;
+
+    dir = opendir(SINIT_DIR);
+    if (dir == NULL)
+        return -1;
+
+    regcomp(&regex, SINIT_MATCH, REG_NOSUB);
+    while ((dirent = readdir(dir)) != NULL) {
+        if (regexec(&regex, dirent->d_name, 0, 0, 0) == 0) {
+            strcpy(fname, SINIT_DIR);
+            strncat(fname, dirent->d_name, sizeof(fname) - strlen(fname) - 1);
+            if ((fd = open(fname, O_RDONLY)) >= 0) {
+                break;
+            }
+        }
+    }
+
+    regfree(&regex);
+    closedir(dir);
+    return fd;
 }
 
 
