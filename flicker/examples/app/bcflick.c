@@ -170,34 +170,28 @@ int flicker_decrypt(unsigned char *ptext, unsigned char const *ctext, unsigned c
 
     sprintf(palfile, PAL_FILE, datadir);
 
-    for (;;) {
-            if ((rslt = get_blob(datadir)) < 0)
-            return rslt;
-        pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
-        pm_append(tag_iv, (char *)iv, 16);
-        pm_append(tag_ciphertext, (char *)ctext, ctsize);
+    if ((rslt = get_blob(datadir)) < 0)
+        return rslt;
+    pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
+    pm_append(tag_iv, (char *)iv, 16);
+    pm_append(tag_ciphertext, (char *)ctext, ctsize);
 
-        if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
-                    outbuf, sizeof(outbuf)) < 0) {
-            fprintf(stderr, "pal call failed for %s\n", palfile);
-            return -2;
-        }
-        
-        print_output();
-        if ((rslt = handle_results(datadir)) < 0)
-            return rslt;
+    if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
+                outbuf, sizeof(outbuf)) < 0) {
+        fprintf(stderr, "pal call failed for %s\n", palfile);
+        return -2;
+    }
+    
+    print_output();
 
-        if (pm_get_addr(tag_delay, &outptr) < 0)
-            break;
-
+    if (pm_get_addr(tag_delay, &outptr) > 0) {
         delay = *(int *)outptr;
-
-        fprintf(stderr, "sleeping for %d seconds\n", delay);
-        sleep(delay);
+        printf("retry in %d seconds\n", delay);
+        return -1;
     }
 
-    if (rslt != 0)
-        return -100 - rslt;
+    if ((rslt = handle_results(datadir)) < 0)
+        return rslt;
 
     if ((ptextlen = pm_get_addr(tag_plaintext, &outptr)) <  0)
         return -1;
