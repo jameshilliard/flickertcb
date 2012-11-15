@@ -43,7 +43,7 @@ static int get_blob(const char *datadir);
 static int check_iv(const unsigned char *iv);
 
 
-int flicker_init(unsigned char *key, int keylen, int secs, const char *datadir)
+int flicker_init(unsigned char *key, int keylen, int daylimit, const char *datadir)
 {
     int cmd = cmd_init;
     char palfile[PATH_MAX];
@@ -55,7 +55,7 @@ int flicker_init(unsigned char *key, int keylen, int secs, const char *datadir)
     sprintf(palfile, PAL_FILE, datadir);
 
     pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
-    pm_append(tag_interval, (char *)&secs, sizeof(secs));
+    pm_append(tag_daylimit, (char *)&daylimit, sizeof(daylimit));
     pm_append(tag_key, key, 32);
 
     if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),

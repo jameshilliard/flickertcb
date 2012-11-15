@@ -46,13 +46,14 @@ struct state {
     uint8_t state2_dkey[2*N_BLOCK];
 uint8_t state2[0];
     tpm_nonce_t tick_nonce;
-    int interval_secs;
+    uint64_t init_ticks;
+    int day_limit;
+    int day_number;
+    int day_count;
     uint32_t counter_id;
     uint32_t counter;
     uint8_t key[2*N_BLOCK];
     uint8_t dkey[2*N_BLOCK];
-    uint8_t ct_mem[NMEM][SHA_DIGEST_LENGTH];
-    uint64_t current_ticks[NMEM];
     uint8_t pad[N_BLOCK];
 };
 
@@ -160,17 +161,20 @@ static int do_init_cmd(int cmd)
     keysize = N_BLOCK;
     tpm_get_random(2, blob2, &keysize);
 
-    if (pm_get_addr(tag_interval, &inptr) < 0) {
-        log_event(LOG_LEVEL_ERROR, "error: no interval\n");
+    if (pm_get_addr(tag_daylimit, &inptr) < 0) {
+        log_event(LOG_LEVEL_ERROR, "error: no day limit\n");
         return rslt_badparams;
     }
-    log_event(LOG_LEVEL_INFORMATION, "interval: %d\n", *(int *)inptr);
 
-    state.interval_secs = *(int *)inptr;
+    state.day_limit = *(int *)inptr;
+    state.day_number = 0;
+    state.day_count = 0;
+
+    log_event(LOG_LEVEL_INFORMATION, "day limit = %d\n", state.day_limit);
+
     tpm_read_current_ticks(2, &ticks);
-    memset(state.current_ticks, 0, sizeof(state.current_ticks));
+    state.init_ticks = ticks.current_ticks;
     memcpy(state.tick_nonce.nonce, ticks.tick_nonce.nonce, sizeof(state.tick_nonce.nonce));
-    memset(state.ct_mem, 0, sizeof(state.ct_mem));
 
     if ((rslt = state_seal(&state)) != rslt_ok)
         return rslt;
@@ -259,6 +263,7 @@ static int do_decrypt(int cmd)
     tpm_counter_value_t counter;
     char *inptr;
     int interval_secs;
+    int day_number;
     int rslt = rslt_ok;
     int inlen;
     uint8_t *iv;
@@ -266,7 +271,6 @@ static int do_decrypt(int cmd)
     uint8_t pk[65];
     int padlen;
     int i;
-    int duplicate = false;
     uint8_t md[SHA_DIGEST_LENGTH];
 
     if ((rslt = state_unseal(&state)) != rslt_ok)
@@ -308,34 +312,31 @@ static int do_decrypt(int cmd)
 
     sha1_buffer(ctxt, inlen, md);
 
-    for (i=0; i<NMEM; i++) {
-        if (memcmp(md, state.ct_mem[i], SHA_DIGEST_LENGTH) == 0) {
-            log_event(LOG_LEVEL_INFORMATION, "duplicate decryption found, allowed\n");
-            duplicate = true;
-            break;
-        }
+    tpm_read_current_ticks(2, &ticks);
+    if (memcmp(ticks.tick_nonce.nonce, state.tick_nonce.nonce,
+                sizeof(ticks.tick_nonce.nonce)) != 0) {
+        log_event(LOG_LEVEL_WARNING, "tick timer got reset\n");
+        return rslt_inconsistentstate;
     }
 
-    if (!duplicate) {
-        tpm_read_current_ticks(2, &ticks);
-        if (memcmp(ticks.tick_nonce.nonce, state.tick_nonce.nonce,
-                    sizeof(ticks.tick_nonce.nonce)) != 0) {
-            log_event(LOG_LEVEL_WARNING, "tick timer got reset\n");
-            return rslt_inconsistentstate;
-        }
+    interval_secs = (ticks.current_ticks - state.init_ticks)
+        / (1000000 / ticks.tick_rate);
+    day_number = interval_secs / 86400;
+    log_event(LOG_LEVEL_INFORMATION, "day number = %d\n", day_number);
 
-        interval_secs = (ticks.current_ticks - state.current_ticks[0])
-            / (1000000 / ticks.tick_rate);
-        log_event(LOG_LEVEL_INFORMATION, "interval = %d secs\n", interval_secs);
-        if (interval_secs < state.interval_secs * NMEM) {
-            log_event(LOG_LEVEL_WARNING, "error: interval too short\n");
-            interval_secs = state.interval_secs * NMEM - interval_secs;
-            pm_append(tag_delay, (char *)&interval_secs, sizeof(interval_secs));
-            return rslt_disallowed;
-        }
-
-        log_event(LOG_LEVEL_INFORMATION, "work authorized!\n");
+    if (state.day_number != day_number) {
+        state.day_number = day_number;
+        state.day_count = 1;
+        log_event(LOG_LEVEL_INFORMATION, "new day! day count = %d\n", state.day_count);
+    } else if (++state.day_count > state.day_limit) {
+        log_event(LOG_LEVEL_WARNING, "error: day limit exceeded\n");
+        interval_secs = (day_number + 1) * 86400 - interval_secs;
+        pm_append(tag_delay, (char *)&interval_secs, sizeof(interval_secs));
+        return rslt_disallowed;
     }
+    else log_event(LOG_LEVEL_INFORMATION, "day count = %d\n", state.day_count);
+
+    log_event(LOG_LEVEL_INFORMATION, "work authorized!\n");
 
     aes_cbc_decrypt(padded, ctxt, inlen, iv, state.dkey);
 
@@ -370,21 +371,11 @@ static int do_decrypt(int cmd)
         log_event(LOG_LEVEL_WARNING, "WARNING: IV VERIFY FAILED\n");
     }
 
-    if (!duplicate) {
-        for (i=1; i<NMEM; i++)
-            memcpy(state.ct_mem[i-1], state.ct_mem[i], SHA_DIGEST_LENGTH);
-        memcpy(state.ct_mem[NMEM-1], md, SHA_DIGEST_LENGTH);
+    tpm_increment_counter(2, state.counter_id, &ctr_authdata, &counter);
+    state.counter = counter.counter;
 
-        for (i=1; i<NMEM; i++)
-            state.current_ticks[i-1] = state.current_ticks[i];
-        state.current_ticks[NMEM-1] = ticks.current_ticks;
-
-        tpm_increment_counter(2, state.counter_id, &ctr_authdata, &counter);
-        state.counter = counter.counter;
-
-        if ((rslt = state_seal(&state)) != rslt_ok)
-            return rslt;
-    }
+    if ((rslt = state_seal(&state)) != rslt_ok)
+        return rslt;
 
     return rslt;
 }

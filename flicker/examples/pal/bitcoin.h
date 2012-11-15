@@ -30,7 +30,7 @@ enum {
     tag_cmd = 0x40000000,
     tag_rslt,
     tag_blob,
-    tag_interval,
+    tag_daylimit,
     tag_key,
     tag_delay,
     tag_iv,

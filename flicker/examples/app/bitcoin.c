@@ -40,7 +40,7 @@ unsigned char blob[10000];
 /* forward references */
 static void print_output(void);
 static int handle_results(void);
-static int do_init(int secs, unsigned char *key);
+static int do_init(int daylimit, unsigned char *key);
 static int do_encrypt(unsigned char *iv, unsigned char *ptext, int ptextlen);
 static int do_decrypt(unsigned char *iv, unsigned char *ctext, int ctextlen);
 static void userr(char *name);
@@ -49,7 +49,7 @@ static int scan_hex(char *s, unsigned char *buf);
 
 int main(int ac, char **av)
 {
-    int secs;
+    int daylimit;
     unsigned char key[32];
     int rslt = 0;
 
@@ -63,14 +63,14 @@ int main(int ac, char **av)
         int i;
         char *hexkey;
 
-        if (ac != 4 || (secs = atoi(av[2])) <= 0)
+        if (ac != 4 || (daylimit = atoi(av[2])) <= 0)
             userr(av[0]);
         hexkey = av[3];
         if (strlen(hexkey) != 64)
             userr(av[0]);
         if(scan_hex(hexkey, key) < 0)
             userr(av[0]);
-        if ((rslt = do_init(secs, key)) < 0)
+        if ((rslt = do_init(daylimit, key)) < 0)
             return -rslt;
     } else if (strcmp(av[1], "encrypt") == 0
             || strcmp(av[1], "decrypt") == 0) {
@@ -119,7 +119,7 @@ int main(int ac, char **av)
 static void userr(char *name)
 {
     fprintf(stderr,
-            "Usage: %s [init <interval_secs> <64-char-key>\n"
+            "Usage: %s [init <daylimit> <64-char-key>\n"
             "\t| encrypt <32-char-iv> <plaintext>\n"
             "\t| decrypt <32-char-iv> <ciphertext>]\n", PAL_FILE);
     exit(1);
@@ -163,12 +163,12 @@ static void print_output()
     }
 }
 
-static int do_init(int secs, unsigned char *key)
+static int do_init(int daylimit, unsigned char *key)
 {
     int cmd = cmd_init;
 
     pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
-    pm_append(tag_interval, (char *)&secs, sizeof(secs));
+    pm_append(tag_daylimit, (char *)&daylimit, sizeof(daylimit));
     pm_append(tag_key, key, 32);
     return 0;
 }
