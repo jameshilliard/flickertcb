@@ -310,10 +310,8 @@ cpu_amd:
     movl $(CPU_VENDOR_AMD), %edx
     jmp cpu_common
 
-    /* If Intel CPU, re-enable MTRRs from TXT heap. */
 cpu_intel:
     movl $(CPU_VENDOR_INTEL), %edx
-    call txt_post_launch
     jmp cpu_common
 
     /* Common code from now on */
@@ -470,6 +468,13 @@ cpu_common:
     pushl %eax
     call slb_outlong
     popl %eax
+
+    /* If Intel CPU, re-enable MTRRs from TXT heap. */
+    call get_cpu_vendor // return value winds up in EAX
+    cmpl $CPU_VENDOR_INTEL, %eax
+    jne 1f // don't do this on AMD
+    call txt_post_launch
+1:
 
     /* Load ring 3 DS */
     movw $(0x00000003+ds_flicker_sel), %ax
