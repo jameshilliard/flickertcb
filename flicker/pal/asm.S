@@ -474,6 +474,9 @@ cpu_common:
     cmpl $CPU_VENDOR_INTEL, %eax
     jne 1f // don't do this on AMD
     call txt_post_launch
+    cmp $0, %eax
+    je 1f
+    jmp skip_pal
 1:
 
     /* Load ring 3 DS */
@@ -576,6 +579,7 @@ ring0_reenter: /* This is the target of the call gate */
 
     SayAsm // 6.
 
+skip_pal:
     /* Calculate the physical base address of the struct cpu_state
      * which contains kernel's saved values */
     movl %ebp, %esi      /* physical base addr of PAL */

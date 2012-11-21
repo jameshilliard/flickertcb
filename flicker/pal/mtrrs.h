@@ -151,6 +151,48 @@ extern void set_all_mtrrs(bool enable);
 
 extern void restore_mtrrs(mtrr_state_t *saved_state);
 
+extern bool validate_mtrrs(const mtrr_state_t *saved_state);
+
+/* from:
+ * $FreeBSD: src/sys/i386/include/cpufunc.h,v 1.158 2010/01/01 20:55:11 obrien Exp $
+ */
+
+static inline void do_cpuid(unsigned int ax, uint32_t *p)
+{
+    __asm__ __volatile__ ("cpuid"
+                          : "=a" (p[0]), "=b" (p[1]), "=c" (p[2]), "=d" (p[3])
+                          :  "0" (ax));
+}
+
+static inline uint32_t cpuid_eax(unsigned int op)
+{
+     /* eax: regs[0], ebx: regs[1], ecx: regs[2], edx: regs[3] */
+    uint32_t regs[4];
+
+    do_cpuid(op, regs);
+
+    return regs[0];
+}
+
+static inline uint32_t cpuid_ebx(unsigned int op)
+{
+     /* eax: regs[0], ebx: regs[1], ecx: regs[2], edx: regs[3] */
+    uint32_t regs[4];
+
+    do_cpuid(op, regs);
+
+    return regs[1];
+}
+
+static inline uint32_t cpuid_ecx(unsigned int op)
+{
+     /* eax: regs[0], ebx: regs[1], ecx: regs[2], edx: regs[3] */
+    uint32_t regs[4];
+
+    do_cpuid(op, regs);
+
+    return regs[2];
+}
 
 #endif /*__TXT_MTRRS_H__ */
 
