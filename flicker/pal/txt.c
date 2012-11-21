@@ -46,6 +46,7 @@
 
 static int txt_post_launch_verify_platform(void);
 
+int txt_post_launch(void) __attribute__ ((section (".text.slb")));
 int txt_post_launch(void)
 {
 
@@ -111,6 +112,7 @@ int txt_post_launch(void)
 }
 
 
+static bool verify_saved_mtrrs(txt_heap_t *txt_heap) __attribute__ ((section (".text.slb")));
 static bool verify_saved_mtrrs(txt_heap_t *txt_heap)
 {
     os_mle_data_t *os_mle_data;
@@ -120,6 +122,7 @@ static bool verify_saved_mtrrs(txt_heap_t *txt_heap)
 }
 
 
+int txt_post_launch_verify_platform(void) __attribute__ ((section (".text.slb")));
 int txt_post_launch_verify_platform(void)
 {
     txt_heap_t *txt_heap;

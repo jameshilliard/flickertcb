@@ -61,6 +61,7 @@
 #define SINIT_MTRR_MASK         0xFFFFFF  /* SINIT requires 36b mask */
 
 
+void restore_mtrrs(mtrr_state_t *saved_state) __attribute__ ((section (".text.slb")));
 void restore_mtrrs(mtrr_state_t *saved_state)
 {
     int ndx;
@@ -84,6 +85,7 @@ void restore_mtrrs(mtrr_state_t *saved_state)
 
 
 /* enable/disable all MTRRs */
+void set_all_mtrrs(bool enable) __attribute__ ((section (".text.slb")));
 void set_all_mtrrs(bool enable)
 {
     mtrr_def_type_t mtrr_def_type;
@@ -94,6 +96,7 @@ void set_all_mtrrs(bool enable)
 }
 
 
+static uint64_t get_maxphyaddr_mask(void) __attribute__ ((section (".text.slb")));
 static uint64_t get_maxphyaddr_mask(void)
 {
     union {
@@ -115,6 +118,7 @@ static uint64_t get_maxphyaddr_mask(void)
 }
 
 /* base should be 4k-bytes aligned, no invalid overlap combination */
+static int get_page_type(const mtrr_state_t *saved_state, uint32_t base) __attribute__ ((section (".text.slb")));
 static int get_page_type(const mtrr_state_t *saved_state, uint32_t base)
 {
     int type = -1;
@@ -149,6 +153,8 @@ static int get_page_type(const mtrr_state_t *saved_state, uint32_t base)
 }
 
 static int get_region_type(const mtrr_state_t *saved_state,
+                           uint32_t base, uint32_t pages) __attribute__ ((section (".text.slb")));
+static int get_region_type(const mtrr_state_t *saved_state,
                            uint32_t base, uint32_t pages)
 {
     int type;
@@ -177,6 +183,7 @@ static int get_region_type(const mtrr_state_t *saved_state,
     return type;
 }
 
+static bool validate_mmio_regions(const mtrr_state_t *saved_state) __attribute__ ((section (".text.slb")));
 static bool validate_mmio_regions(const mtrr_state_t *saved_state)
 {
 //    acpi_table_mcfg_t *acpi_table_mcfg;
@@ -250,6 +257,7 @@ static bool validate_mmio_regions(const mtrr_state_t *saved_state)
     return true;
 }
 
+bool validate_mtrrs(const mtrr_state_t *saved_state) __attribute__ ((section (".text.slb")));
 bool validate_mtrrs(const mtrr_state_t *saved_state)
 {
     mtrr_cap_t mtrr_cap;
