@@ -35,9 +35,12 @@
 
 #include "perf.h" /* for performance measuring structs */
 
-#ifndef PAGE_SIZE
-#define PAGE_SIZE 0x1000
-#endif
+
+/* From http://fxr.watson.org/fxr/source/i386/include/param.h */
+#define PAGE_SHIFT       12                 /* LOG2(PAGE_SIZE) */
+#define PAGE_SIZE        (1 << PAGE_SHIFT)  /* bytes/page */
+/* PAGE_MASK is used to pass bits 12 and above. */
+#define PAGE_MASK        (~(PAGE_SIZE-1))
 
 #define BUG() /**/
 #define BUG_ON(_p) do { if (_p) BUG(); } while ( 0 )

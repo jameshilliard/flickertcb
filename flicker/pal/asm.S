@@ -148,6 +148,26 @@
 
 #define STACK_TOP 0x10000 /* 64 KB */
 
+/* TXT config regs addrs/offsets */
+#define TXT_PRIV_CONFIG_REGS_BASE      0xfed20000
+#define TXTCR_STS                      0x0000
+#define TXTCR_ERRORCODE                0x0030
+#define TXTCR_CMD_RESET                0x0038
+#define TXTCR_CMD_UNLOCK_MEM_CONFIG    0x0218
+#define TXTCR_HEAP_BASE                0x0300
+
+/* OsSinitData field offsets */
+#define MLE_PGTBL_OFF          8
+
+/* errorcode for post-launch memory layout verfication failure */
+#define LAYOUT_ERR             0xc0008001
+
+/* From http://fxr.watson.org/fxr/source/i386/include/param.h */
+#define PAGE_SHIFT       12                 /* LOG2(PAGE_SIZE) */
+#define PAGE_SIZE        (1 << PAGE_SHIFT)  /* bytes/page */
+/* PAGE_MASK is used to pass bits 12 and above. */
+#define PAGE_MASK        (~(PAGE_SIZE-1))
+
     /* Linker script sticks these variables at the end of "low" region.
      * Their purpose is to enable accurate embedding of SLB size. */
     .extern g_end_of_low
@@ -310,10 +330,8 @@ cpu_amd:
     movl $(CPU_VENDOR_AMD), %edx
     jmp cpu_common
 
-    /* If Intel CPU, re-enable MTRRs from TXT heap. */
 cpu_intel:
     movl $(CPU_VENDOR_INTEL), %edx
-    call txt_post_launch
     jmp cpu_common
 
     /* Common code from now on */
@@ -471,6 +489,71 @@ cpu_common:
     call slb_outlong
     popl %eax
 
+    /* If Intel CPU, do extra checks. */
+    call get_cpu_vendor // return value winds up in EAX
+    cmpl $CPU_VENDOR_INTEL, %eax
+    jne ring3 // don't do this on AMD
+
+ptcheck:
+    // from tboot, modified:
+    /* verify last entry in MLE page table is the one we expected
+     * this is sufficient because: 1) all addrs must be phys increasing
+     * and 2) tboot is phys contig--therefore if any page were moved to
+     * a different phys addr then the last page would have to be different
+     * from tboot's last page
+     */
+    /* get addr of MLE page table from OsSinitData */
+                              /* start of TXT heap (== BiosDataSize) */
+    mov (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_HEAP_BASE), %eax
+    add (%eax), %eax                   /* skip BiosData */
+    add (%eax), %eax                   /* skip OsMleData */
+    mov (MLE_PGTBL_OFF+8)(%eax), %eax  /* addr of MLE page table */
+
+    // check that page tables start before pal
+    lea -3*PAGE_SIZE(%ebp), %ebx
+    cmp %eax, %ebx
+    jne layout_err
+
+    /* get to page table itself (there is only one for tboot) */
+    mov (%eax), %eax          /* pgdir ptr -> pgdir */
+    and $PAGE_MASK, %eax
+    mov (%eax), %eax          /* pgdir -> pgtbl */
+    and $PAGE_MASK, %eax
+    /* find last page (pte) */
+    mov $g_aligned_end_of_low, %ecx
+    shr $PAGE_SHIFT-3, %ecx
+    sub $8, %ecx              /* size/4k*8 is offset+1 of last pte */
+    add %ecx, %eax
+    mov (%eax), %eax          /* pte of last page */
+    and $PAGE_MASK, %eax
+    /* calc expected addr of last page */
+    mov $(g_aligned_end_of_low - 1), %ebx /* addr of last byte of MLE... */
+    add %ebp, %ebx
+    and $PAGE_MASK, %ebx      /* ...rounded to page start */
+    /* are they equal? */
+    cmp %ebx, %eax
+    jne layout_err
+
+    push %ebp
+    call txt_post_launch
+    add $4, %esp
+    cmp $0, %eax
+    je ring3
+
+layout_err:       /* layout check failed so TXT RESET */
+                  /* set a special error code */
+    movl $LAYOUT_ERR, (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_ERRORCODE)
+                     /* unlock memory config (and serialize) */
+    movl $1, (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_CMD_UNLOCK_MEM_CONFIG)
+    movl (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_STS), %eax
+                     /* TXT RESET */
+    movl $1, (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_CMD_RESET)
+    mov $6, %eax
+    mov $0xcf9, %edx
+    out %al, (%dx)   /* for debug chipsets where TXT RESET may not work */
+    ud2
+
+ring3:
     /* Load ring 3 DS */
     movw $(0x00000003+ds_flicker_sel), %ax
     mov %ax, %ds
@@ -571,6 +654,7 @@ ring0_reenter: /* This is the target of the call gate */
 
     SayAsm // 6.
 
+skip_pal:
     /* Calculate the physical base address of the struct cpu_state
      * which contains kernel's saved values */
     movl %ebp, %esi      /* physical base addr of PAL */

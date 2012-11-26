@@ -44,7 +44,10 @@
 #include "malloc.h"
 #include "mtrrs.h"
 
-void txt_post_launch(void)
+static int txt_post_launch_verify_platform(uint32_t base);
+
+int txt_post_launch(uint32_t base) __attribute__ ((section (".text.slb")));
+int txt_post_launch(uint32_t base)
 {
 
     /* This is the full txt_post_launch function used by tboot
@@ -55,10 +58,10 @@ void txt_post_launch(void)
     txt_heap_t *txt_heap;
     os_mle_data_t *os_mle_data;
 
-//    tb_error_t err;
-//
-//    /* verify MTRRs, VT-d settings, TXT heap, etc. */
-//    err = txt_post_launch_verify_platform();
+    int err;
+
+    /* verify MTRRs, VT-d settings, TXT heap, etc. */
+    err = txt_post_launch_verify_platform(base);
 //    /* don't return the error yet, because we need to restore settings */
 //    if ( err != TB_ERR_NONE )
 //        printk("failed to verify platform\n");
@@ -105,4 +108,55 @@ void txt_post_launch(void)
 //    read_priv_config_reg(TXTCR_E2STS);   /* just a fence, so ignore return */
 //    printk("opened TPM locality 1\n");
 
+    return err;
 }
+
+
+static bool verify_saved_mtrrs(txt_heap_t *txt_heap) __attribute__ ((section (".text.slb")));
+static bool verify_saved_mtrrs(txt_heap_t *txt_heap)
+{
+    os_mle_data_t *os_mle_data;
+    os_mle_data = get_os_mle_data_start(txt_heap);
+
+    return validate_mtrrs(&(os_mle_data->saved_mtrr_state));
+}
+
+
+static bool verify_vtd_pmrs(txt_heap_t *txt_heap, uint32_t base) __attribute__ ((section (".text.slb")));
+static bool verify_vtd_pmrs(txt_heap_t *txt_heap, uint32_t base)
+{
+    os_sinit_data_t *os_sinit_data;
+    os_sinit_data = get_os_sinit_data_start(txt_heap);
+
+    if (os_sinit_data->vtd_pmr_lo_base != (base & ~0x1fffff)
+            || os_sinit_data->vtd_pmr_lo_size != 0x200000)
+        return false;
+    return true;
+}
+
+
+
+int txt_post_launch_verify_platform(uint32_t base) __attribute__ ((section (".text.slb")));
+int txt_post_launch_verify_platform(uint32_t base)
+{
+    txt_heap_t *txt_heap;
+
+    /*
+     * verify some of the heap structures
+     */
+    txt_heap = get_txt_heap();
+
+//    if ( !verify_txt_heap(txt_heap, false) )
+//        return -1;
+
+    /* verify the saved MTRRs */
+    if ( !verify_saved_mtrrs(txt_heap) )
+        return -1;
+
+    /* verify that VT-d PMRs were really set as required */
+    if ( !verify_vtd_pmrs(txt_heap, base) )
+        return -1;
+
+    return 0;
+}
+
