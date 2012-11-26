@@ -66,6 +66,29 @@ typedef struct {
                                                     * SENTER */
 } os_mle_data_t;
 
+
+/*
+ * OS/loader to SINIT structure
+ */
+typedef struct __packed {
+    uint32_t    version;           /* currently 4-6 */
+    uint32_t    reserved;
+    uint64_t    mle_ptab;
+    uint64_t    mle_size;
+    uint64_t    mle_hdr_base;
+    uint64_t    vtd_pmr_lo_base;
+    uint64_t    vtd_pmr_lo_size;
+    uint64_t    vtd_pmr_hi_base;
+    uint64_t    vtd_pmr_hi_size;
+    uint64_t    lcp_po_base;
+    uint64_t    lcp_po_size;
+//    txt_caps_t  capabilities;
+//    /* versions >= 5 */
+//    uint64_t    efi_rsdt_ptr;
+//    /* versions >= 6 */
+//    heap_ext_data_element_t  ext_data_elts[];
+} os_sinit_data_t;
+
 /*
  * TXT heap data format and field accessor fns. See MLE developer's
  * guide for details.
@@ -79,25 +102,39 @@ static inline txt_heap_t *get_txt_heap(void)
 }
 
 
-static inline uint64_t get_bios_data_size(txt_heap_t *heap)
+static inline uint64_t get_bios_data_size(const txt_heap_t *heap)
 {
     return *(uint64_t *)heap;
 }
 
-static inline bios_data_t *get_bios_data_start(txt_heap_t *heap)
+static inline bios_data_t *get_bios_data_start(const txt_heap_t *heap)
 {
     return (bios_data_t *)((char*)heap + sizeof(uint64_t));
 }
 
-static inline uint64_t get_os_mle_data_size(txt_heap_t *heap)
+static inline uint64_t get_os_mle_data_size(const txt_heap_t *heap)
 {
     return *(uint64_t *)((char*)heap + get_bios_data_size(heap));
 }
 
-static inline void *get_os_mle_data_start(txt_heap_t *heap)
+static inline void *get_os_mle_data_start(const txt_heap_t *heap)
 {
     return (void *)((char*)heap + get_bios_data_size(heap) +
                               sizeof(uint64_t));
 }
+
+static inline uint64_t get_os_sinit_data_size(const txt_heap_t *heap)
+{
+    return *(uint64_t *)(heap + get_bios_data_size(heap) +
+                         get_os_mle_data_size(heap));
+}
+
+static inline os_sinit_data_t *get_os_sinit_data_start(const txt_heap_t *heap)
+{
+    return (os_sinit_data_t *)(heap + get_bios_data_size(heap) +
+                               get_os_mle_data_size(heap) +
+                               sizeof(uint64_t));
+}
+
 
 #endif /* __TXT_HEAP_H__ */

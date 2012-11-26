@@ -534,7 +534,9 @@ ptcheck:
     cmp %ebx, %eax
     jne layout_err
 
+    push %ebp
     call txt_post_launch
+    add $4, %esp
     cmp $0, %eax
     je ring3
 
