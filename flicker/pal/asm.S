@@ -155,6 +155,8 @@
 #define TXTCR_CMD_RESET                0x0038
 #define TXTCR_CMD_UNLOCK_MEM_CONFIG    0x0218
 #define TXTCR_HEAP_BASE                0x0300
+#define TXTCR_CMD_SECRETS              0x08e0
+#define TXTCR_CMD_NO_SECRETS           0x08e8
 
 /* OsSinitData field offsets */
 #define MLE_PGTBL_OFF          8
@@ -534,6 +536,9 @@ ptcheck:
     cmp %ebx, %eax
     jne layout_err
 
+    movl $1, (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_CMD_SECRETS)
+    movl (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_STS), %eax
+
     push %ebp
     call txt_post_launch
     add $4, %esp
@@ -545,6 +550,8 @@ layout_err:       /* layout check failed so TXT RESET */
     movl $LAYOUT_ERR, (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_ERRORCODE)
                      /* unlock memory config (and serialize) */
     movl $1, (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_CMD_UNLOCK_MEM_CONFIG)
+    movl (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_STS), %eax
+    movl $1, (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_CMD_NO_SECRETS)
     movl (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_STS), %eax
                      /* TXT RESET */
     movl $1, (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_CMD_RESET)
@@ -629,6 +636,10 @@ ring0_reenter: /* This is the target of the call gate */
     call get_cpu_vendor // return value winds up in EAX
     cmpl $CPU_VENDOR_INTEL, %eax
     jne 1f // don't do this on AMD
+    movl $1, (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_CMD_UNLOCK_MEM_CONFIG)
+    movl (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_STS), %eax
+    movl $1, (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_CMD_NO_SECRETS)
+    movl (TXT_PRIV_CONFIG_REGS_BASE + TXTCR_STS), %eax
     movl $0x5, %eax
     getsec
 1:
