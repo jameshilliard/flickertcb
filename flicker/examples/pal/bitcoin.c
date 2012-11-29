@@ -179,6 +179,8 @@ static int do_init_cmd(int cmd)
     if ((rslt = state_seal(&state)) != rslt_ok)
         return rslt;
 
+    memset(&state, 0, sizeof(state));
+
     return rslt_ok;
 }
 
@@ -253,6 +255,9 @@ static int do_encrypt(int cmd)
         log_event(LOG_LEVEL_WARNING, "WARNING: IV VERIFY FAILED\n");
     }
 
+    memset(&state, 0, sizeof(state));
+    memset(padded, 0, sizeof(padded));
+
     return rslt;
 }
 
@@ -271,7 +276,6 @@ static int do_decrypt(int cmd)
     uint8_t pk[65];
     int padlen;
     int i;
-    uint8_t md[SHA_DIGEST_LENGTH];
 
     if ((rslt = state_unseal(&state)) != rslt_ok)
         return rslt;
@@ -309,8 +313,6 @@ static int do_decrypt(int cmd)
 
     //log_event(LOG_LEVEL_INFORMATION, "ctxt:\n");
     //dumphex(ctxt, inlen);
-
-    sha1_buffer(ctxt, inlen, md);
 
     tpm_read_current_ticks(2, &ticks);
     if (memcmp(ticks.tick_nonce.nonce, state.tick_nonce.nonce,
@@ -377,6 +379,9 @@ static int do_decrypt(int cmd)
     if ((rslt = state_seal(&state)) != rslt_ok)
         return rslt;
 
+    memset(&state, 0, sizeof(state));
+    memset(padded, 0, sizeof(padded));
+
     return rslt;
 }
 
@@ -433,6 +438,9 @@ static int do_keygen(int cmd)
     aes_cbc_encrypt(obuf, padded, (inlen+padlen)/N_BLOCK, iv, state.key);
 
     pm_append(tag_ciphertext, (char *)obuf, inlen+padlen);
+
+    memset(&state, 0, sizeof(state));
+    memset(padded, 0, sizeof(padded));
 
     return rslt;
 }
