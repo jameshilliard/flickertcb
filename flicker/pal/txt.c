@@ -127,10 +127,15 @@ static bool verify_vtd_pmrs(txt_heap_t *txt_heap, uint32_t base)
 {
     os_sinit_data_t *os_sinit_data;
     os_sinit_data = get_os_sinit_data_start(txt_heap);
+    uint32_t base_aligned = base & ~0x1fffff;
+
+    if (base - 3*PAGE_SIZE != base_aligned)
+        return false;
 
     if (os_sinit_data->vtd_pmr_lo_base != (base & ~0x1fffff)
             || os_sinit_data->vtd_pmr_lo_size != 0x200000)
         return false;
+
     return true;
 }
 
