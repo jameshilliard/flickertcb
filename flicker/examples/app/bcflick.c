@@ -43,7 +43,7 @@ static int get_blob(const char *datadir);
 static int check_iv(const unsigned char *iv);
 
 
-int flicker_init(unsigned char *key, int keylen, int daylimit, const char *datadir)
+int flicker_init(unsigned char *key, int keylen, unsigned long long daylimit, const char *datadir)
 {
     int cmd = cmd_init;
     char palfile[PATH_MAX];
@@ -112,6 +112,97 @@ int flicker_encrypt(unsigned char *ctext, unsigned char const *ptext, unsigned p
 
     return ctextlen;
 }
+
+unsigned char inbuff[MAX_INPUT_PARAM_SIZE];
+unsigned char outbuff[MAX_OUTPUT_PARAM_SIZE];
+
+extern int nextOutputPos;
+int nop, fw;
+
+void flicker_setchange(int changeindex, unsigned char *pk, unsigned pksize,
+        unsigned char *ctext, unsigned ctextsize)
+{
+    printf("flicker_setchange called with index %d\n", changeindex);
+
+    /* pal inbuff is our outbuff */
+    pm_init(outbuff, sizeof(outbuff), inbuff, sizeof(inbuff));
+
+    pm_append(tag_changeindex, (char *)&changeindex, sizeof(changeindex));
+    if (pksize)
+        pm_append(tag_changepk, (char *)pk, pksize);
+    if (ctextsize)
+        pm_append(tag_changectext, (char *)ctext, ctextsize);
+    nop = nextOutputPos;
+    fw = *(int *)inbuff;
+}
+
+static int signum;
+
+int flicker_sign(unsigned char *txto, int txtolen,
+       unsigned char *txfrom, int txfromlen, unsigned char *iv, unsigned char *ctxt, int ctxtlen,
+       int nth, int ninputs, const char *datadir)
+{
+    int cmd = cmd_sign;
+    char palfile[PATH_MAX];
+    int rslt;
+
+    pm_init(outbuff, sizeof(outbuff), inbuff, sizeof(inbuff));
+    nextOutputPos = nop;
+    *(int *)inbuff = fw;
+
+    printf("flicker_sign pre-called with input %d/%d\n", nth, ninputs);
+
+    if (nth == 0)
+        pm_append(tag_signtrans, (char *)txto, txtolen);
+
+    pm_append(tag_inputtrans+nth, (char *)txfrom, txfromlen);
+    pm_append(tag_signctxt+nth, (char *)ctxt, ctxtlen);
+    pm_append(tag_signiv+nth, (char *)iv, 16);
+
+    if (nth+1 < ninputs) {
+        nop = nextOutputPos;
+        fw = *(int *)inbuff;
+        return 0;
+    }
+
+    printf("flicker_sign called with %d inputs\n", ninputs);
+
+    sprintf(palfile, PAL_FILE, datadir);
+
+    if ((rslt = get_blob(datadir)) < 0)
+        return rslt;
+    pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
+
+    if (callpal(palfile, inbuff, sizeof(inbuff)-pm_avail(),
+                outbuff, sizeof(outbuff)) < 0) {
+        fprintf(stderr, "pal call failed for %s\n", palfile);
+        return -2;
+    }
+    
+    print_output();
+    if ((rslt = handle_results(datadir)) < 0)
+        return rslt;
+
+    signum = 0;
+    return rslt;
+}
+
+int flicker_retrievesig(unsigned char *psig)
+{
+    unsigned char *sig;
+    int siglen;
+
+    pm_init(outbuff, sizeof(outbuff), inbuff, sizeof(inbuff));
+    nextOutputPos = nop;
+    *(int *)inbuff = fw;
+
+    if ((siglen = pm_get_addr(tag_signature+signum++, (char **)&sig)) <  0)
+        return -1;
+    memcpy(sig, psig, siglen);
+
+    return siglen;
+}
+
 
 int flicker_keygen(int compressed, unsigned char *ctext, unsigned char *pk, const char *datadir)
 {
@@ -231,8 +322,9 @@ static void print_output()
     int nout;
     int *outp;
     unsigned long long ts, pts=0;
+    extern char *inputBuffer;
 
-    outp = (int *)outbuf;
+    outp = (int *)inputBuffer;
     nout = *outp++;
     while (nout--) {
         int type = *outp++;

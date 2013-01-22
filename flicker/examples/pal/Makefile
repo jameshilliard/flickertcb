@@ -62,7 +62,7 @@ rlimit.elf: $(PAL_OBJS) $(LINKFILE) $(RLIMIT_OBJS)
 	$(LD) $(LDFLAGS) -T $(LINKFILE) -N $(PAL_OBJS) $(RLIMIT_OBJS) $(GCC_LIBS) \
 	    -o $(@D)/$(@F)
 
-BCFLICK_OBJS := bitcoin.o aes.o cbcmode.o bcmath.o sha256.o libtommath/libtommath.a
+BCFLICK_OBJS := bitcoin.o aes.o cbcmode.o bcsign.o bcmath.o sha256.o rmd160.o libtommath/libtommath.a
 bcflick.elf: $(PAL_OBJS) $(LINKFILE) $(BCFLICK_OBJS)
 	$(LD) $(LDFLAGS) -T $(LINKFILE) -N $(PAL_OBJS) $(BCFLICK_OBJS) $(GCC_LIBS) \
 	    -o $(@D)/$(@F) -M -Map=bcflick.map

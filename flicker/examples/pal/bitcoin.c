@@ -35,6 +35,8 @@
 #include "aes.h"
 #include "cbcmode.h"
 #include "sha256.h"
+#include "rmd160.h"
+#include "bcsign.h"
 #include "bitcoin.h"
 
 #define     NMEM        5
@@ -47,9 +49,9 @@ struct state {
 uint8_t state2[0];
     tpm_nonce_t tick_nonce;
     uint64_t init_ticks;
-    int day_limit;
+    uint64_t day_limit;
     int day_number;
-    int day_count;
+    uint64_t day_value;
     uint32_t counter_id;
     uint32_t counter;
     uint8_t key[2*N_BLOCK];
@@ -59,13 +61,18 @@ uint8_t state2[0];
 
 static int do_init_cmd(int cmd);
 static int do_encrypt(int cmd);
+static int do_sign(int cmd);
 static int do_decrypt(int cmd);
 static int do_keygen(int cmd);
-//static void dumphex(uint8_t *bytes, int len);
+static void dumphex(uint8_t *bytes, int len);
+static int get_value(uint64_t *pvalue);
+static int get_change(uint64_t *pchange, uint8_t *tx, int txlen);
+static int get_signatures();
 static int find_counter(struct state *pstate);
 static int state_seal(struct state *pstate);
 static int state_unseal(struct state *pstate);
 static void bchash(void *inptr, uint32_t len, uint8_t *md);
+static void bchash160(void *inptr, uint32_t len, uint8_t *md);
 
 extern int sectopub(uint8_t *sec, uint8_t *pub);
 
@@ -93,6 +100,9 @@ int pal_main(void)
             break;
         case cmd_decrypt:
             rslt = do_decrypt(cmd);
+            break;
+        case cmd_sign:
+            rslt = do_sign(cmd);
             break;
         case cmd_keygen_uncomp:
         case cmd_keygen_comp:
@@ -166,11 +176,11 @@ static int do_init_cmd(int cmd)
         return rslt_badparams;
     }
 
-    state.day_limit = *(int *)inptr;
+    state.day_limit = *(uint64_t *)inptr;
     state.day_number = 0;
-    state.day_count = 0;
+    state.day_value = 0;
 
-    log_event(LOG_LEVEL_INFORMATION, "day limit = %d\n", state.day_limit);
+    log_event(LOG_LEVEL_INFORMATION, "day limit = %lld\n", state.day_limit);
 
     tpm_read_current_ticks(2, &ticks);
     state.init_ticks = ticks.current_ticks;
@@ -326,6 +336,7 @@ static int do_decrypt(int cmd)
     day_number = interval_secs / 86400;
     log_event(LOG_LEVEL_INFORMATION, "day number = %d\n", day_number);
 
+#if 0
     if (state.day_number != day_number) {
         state.day_number = day_number;
         state.day_count = 1;
@@ -337,6 +348,7 @@ static int do_decrypt(int cmd)
         return rslt_disallowed;
     }
     else log_event(LOG_LEVEL_INFORMATION, "day count = %d\n", state.day_count);
+#endif
 
     log_event(LOG_LEVEL_INFORMATION, "work authorized!\n");
 
@@ -443,6 +455,353 @@ static int do_keygen(int cmd)
     memset(padded, 0, sizeof(padded));
 
     return rslt;
+}
+
+
+static int do_sign(int cmd)
+{
+    tpm_current_ticks_t ticks;
+    tpm_counter_value_t counter;
+//    char *inptr;
+//    int inlen;
+    int interval_secs;
+    int day_number;
+    uint64_t value;
+    int rslt = rslt_ok;
+
+    if ((rslt = state_unseal(&state)) != rslt_ok)
+        return rslt;
+
+    tpm_read_counter(2, state.counter_id, &counter);
+    if (counter.counter != state.counter) {
+        log_event(LOG_LEVEL_ERROR, "anti rollback counter error: %d should be %d\n",
+                state.counter, counter.counter );
+        return rslt_inconsistentstate;
+    }
+
+    if ((rslt = get_value(&value)) != rslt_ok)
+        return rslt;
+
+    tpm_read_current_ticks(2, &ticks);
+    if (memcmp(ticks.tick_nonce.nonce, state.tick_nonce.nonce,
+                sizeof(ticks.tick_nonce.nonce)) != 0) {
+        log_event(LOG_LEVEL_WARNING, "tick timer got reset\n");
+        return rslt_inconsistentstate;
+    }
+
+    interval_secs = (ticks.current_ticks - state.init_ticks)
+        / (1000000 / ticks.tick_rate);
+    day_number = interval_secs / 86400;
+    log_event(LOG_LEVEL_INFORMATION, "day number = %d\n", day_number);
+
+    if (state.day_number != day_number) {
+        state.day_number = day_number;
+        state.day_value = 0;
+        log_event(LOG_LEVEL_INFORMATION, "new day! day value = %lld\n", state.day_value);
+    }
+    if ((state.day_value+=value) > state.day_limit) {
+        log_event(LOG_LEVEL_WARNING, "error: day limit exceeded\n");
+        interval_secs = (day_number + 1) * 86400 - interval_secs;
+        if (value <= state.day_value)
+            pm_append(tag_delay, (char *)&interval_secs, sizeof(interval_secs));
+        return rslt_disallowed;
+    }
+    else log_event(LOG_LEVEL_INFORMATION, "day value = %lld\n", state.day_value);
+
+    log_event(LOG_LEVEL_INFORMATION, "work authorized!\n");
+
+    if ((rslt = get_signatures()) != rslt_ok)
+        return rslt;
+
+    tpm_increment_counter(2, state.counter_id, &ctr_authdata, &counter);
+    state.counter = counter.counter;
+
+    if ((rslt = state_seal(&state)) != rslt_ok)
+        return rslt;
+
+    memset(&state, 0, sizeof(state));
+
+    return rslt_ok;
+}
+
+
+static int get_value(uint64_t *pvalue)
+{
+    int inindex;
+    uint64_t change;
+    uint64_t sum;
+    uint64_t value;
+    uint8_t *tx;
+    int txlen;
+    uint8_t *txin;
+    int txinlen;
+    uint8_t *hash;
+    int ninputs;
+    int rslt;
+    int i;
+
+    if ((txlen=pm_get_addr(tag_signtrans, (char **)&tx)) < 1) {
+        log_event(LOG_LEVEL_ERROR, "error: no signtrans\n");
+        return rslt_badparams;
+    }
+    if (!bc_inputs(&ninputs, tx, txlen)) {
+        log_event(LOG_LEVEL_ERROR, "error: illegal tx\n");
+        return rslt_fail;
+    }
+
+    sum = 0;
+    for (i=0; i<ninputs; i++) {
+        if ((txinlen=pm_get_addr(tag_inputtrans+i, (char **)&txin)) < 0) {
+            log_event(LOG_LEVEL_ERROR, "error: no inputtrans\n");
+            return rslt_badparams;
+        }
+
+        if (!bc_input_data(&inindex, &hash, i, tx, txlen)) {
+            log_event(LOG_LEVEL_ERROR, "error: illegal tx\n");
+            return rslt_fail;
+        }
+
+        bchash(txin, txinlen, md256);
+
+        if (memcmp(hash, md256, sizeof(md256)) != 0) {
+            log_event(LOG_LEVEL_ERROR, "error: input hash %d doesn't match\n", i);
+            return rslt_fail;
+        }
+
+        if (!bc_output_data(&value, NULL, NULL, inindex, txin, txinlen)) {
+            log_event(LOG_LEVEL_ERROR, "error: illegal tx\n");
+            return rslt_fail;
+        }
+
+        log_event(LOG_LEVEL_INFORMATION, "value: %lld\n", value);
+
+        sum += value;
+        if (sum > MAX_VALUE) {
+            log_event(LOG_LEVEL_ERROR, "error: illegal tx\n");
+            return rslt_fail;
+        }
+    }
+
+    log_event(LOG_LEVEL_INFORMATION, "sum: %lld\n", sum);
+
+    if ((rslt = get_change(&change, tx, txlen)) != rslt_ok)
+        return rslt;
+
+    log_event(LOG_LEVEL_INFORMATION, "change: %lld\n", change);
+
+    sum -= change;
+    if (sum > MAX_VALUE) {
+        log_event(LOG_LEVEL_ERROR, "error: illegal tx\n");
+        return rslt_fail;
+    }
+
+    log_event(LOG_LEVEL_INFORMATION, "net value: %lld\n", sum);
+
+    *pvalue = sum;
+    return rslt_ok;
+}
+
+static uint8_t change_script[] = {
+    0x19, 0x76, 0xA9, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0xAC
+};
+
+static int get_change(uint64_t *pchange, uint8_t *tx, int txlen)
+{
+    int chindex;
+    uint8_t *pk;
+    int pklen;
+    uint8_t pkc[65];
+    uint8_t *ctxt;
+    int ctxtlen;
+    uint8_t *script;
+    size_t scriptlen;
+    char *inptr;
+    int inlen;
+    int padlen;
+    int i;
+
+    if ((inlen=pm_get_addr(tag_changeindex, &inptr)) != sizeof(int)) {
+        log_event(LOG_LEVEL_ERROR, "error: no changeindex\n");
+        return rslt_badparams;
+    }
+
+    chindex = *(int *)inptr;
+    if (chindex < 0) {
+        *pchange = 0;
+        return rslt_ok;
+    }
+
+    if ((pklen=pm_get_addr(tag_changepk, (char **)&pk)) < 0) {
+        log_event(LOG_LEVEL_ERROR, "error: no changepk\n");
+        return rslt_badparams;
+    }
+
+    if (pklen != 65 && pklen != 33) {
+        log_event(LOG_LEVEL_ERROR, "error: changepk wrong length\n");
+        return rslt_badparams;
+    }
+    
+    if ((ctxtlen=pm_get_addr(tag_changectext, (char **)&ctxt)) < 0) {
+        log_event(LOG_LEVEL_ERROR, "error: no changectext\n");
+        return rslt_badparams;
+    }
+
+    if (ctxtlen != 3*N_BLOCK) {
+        log_event(LOG_LEVEL_ERROR, "error: changectext wrong length\n");
+        return rslt_badparams;
+    }
+
+    bchash(pk, pklen, md256);
+    aes_cbc_decrypt(padded, ctxt, ctxtlen, md256, state.dkey);
+
+    padlen = padded[ctxtlen-1];
+    i = 0;
+    if (padlen > 0 || padlen <= N_BLOCK) {
+        for (; i<padlen; i++) {
+            if (padded[ctxtlen-padlen+i] != padlen)
+                break;
+        }
+    }
+
+    if (i==0 || i<padlen) {
+        log_event(LOG_LEVEL_ERROR, "error: ciphertext wrongly padded\n");
+        return rslt_badparams;
+    }
+
+    if ((ctxtlen -= padlen) != sizeof(md256)) {
+        log_event(LOG_LEVEL_ERROR, "error: decrypted changectext wrong length\n");
+        return rslt_badparams;
+    }
+
+    if (sectopub(padded, pkc+1) != 0) {
+        log_event(LOG_LEVEL_ERROR, "error: sectopub failed\n");
+        return rslt_fail;
+    }
+
+    if (pklen == 65) {
+        pkc[0] = 0x04;
+    } else {
+        pkc[0] = 0x02 + (pkc[64]&1);
+    }
+
+    if (memcmp(pk, pkc, pklen) != 0) {
+        log_event(LOG_LEVEL_ERROR, "error: changepk does not match changectext\n");
+        return rslt_badparams;
+    }
+
+    bchash160(pk, pklen, change_script+4);
+
+    if (!bc_output_data(pchange, &script, &scriptlen, chindex, tx, txlen)) {
+        log_event(LOG_LEVEL_ERROR, "error: illegal changeindex\n");
+        return rslt_fail;
+    }
+
+    if (scriptlen != sizeof(change_script)
+            || memcmp(script, change_script, scriptlen) != 0) {
+        log_event(LOG_LEVEL_ERROR, "error: changepk does not match change script\n");
+        return rslt_badparams;
+    }
+
+    log_event(LOG_LEVEL_INFORMATION, "successfully verified change script\n");
+
+    return rslt_ok;
+}
+
+static int get_signatures()
+{
+    int inindex;
+    uint8_t *tx;
+    int txlen;
+    uint8_t *txin;
+    int txinlen;
+    uint8_t *script;
+    uint32_t scriptlen;
+    int ninputs;
+    uint8_t *ctxt;
+    int ctxtlen;
+    uint8_t *iv;
+    int ivlen;
+    int padlen;
+    uint32_t keysize;
+    uint8_t k[32];
+    uint8_t sig[73];
+    size_t siglen;
+    int i, j;
+
+    txlen=pm_get_addr(tag_signtrans, (char **)&tx);
+    bc_inputs(&ninputs, tx, txlen);
+
+    for (i=0; i<ninputs; i++) {
+        txinlen=pm_get_addr(tag_inputtrans+i, (char **)&txin);
+        bc_input_data(&inindex, NULL, i, tx, txlen);
+        bc_output_data(NULL, &script, &scriptlen, inindex, txin, txinlen);
+
+        if (!bc_signature_hash(md256, script, scriptlen, i, tx, txlen)) {
+            log_event(LOG_LEVEL_ERROR, "error: illegal signature hash\n");
+            return rslt_fail;
+        }
+        if (i == ninputs-1)
+            dumphex(md256, sizeof(md256));
+
+        if ((ctxtlen=pm_get_addr(tag_signctxt+i, (char **)&ctxt)) < 0) {
+            log_event(LOG_LEVEL_ERROR, "error: no signctxt\n");
+            return rslt_badparams;
+        }
+
+        if (ctxtlen != 3*N_BLOCK) {
+            log_event(LOG_LEVEL_ERROR, "error: signctxt wrong length\n");
+            return rslt_badparams;
+        }
+
+        if ((ivlen=pm_get_addr(tag_signiv+i, (char **)&iv)) < 0) {
+            log_event(LOG_LEVEL_ERROR, "error: no signiv\n");
+            return rslt_badparams;
+        }
+
+        if (ivlen != N_BLOCK) {
+            log_event(LOG_LEVEL_ERROR, "error: signiv wrong length\n");
+            return rslt_badparams;
+        }
+
+
+        aes_cbc_decrypt(padded, ctxt, ctxtlen, iv, state.dkey);
+
+        padlen = padded[ctxtlen-1];
+        j = 0;
+        if (padlen > 0 || padlen <= N_BLOCK) {
+            for (; j<padlen; j++) {
+                if (padded[ctxtlen-padlen+j] != padlen)
+                    break;
+            }
+        }
+
+        if (j==0 || j<padlen) {
+            log_event(LOG_LEVEL_ERROR, "error: signctxt wrongly padded\n");
+            return rslt_badparams;
+        }
+
+        if ((ctxtlen -= padlen) != sizeof(md256)) {
+            log_event(LOG_LEVEL_ERROR, "error: decrypted signctxt wrong length\n");
+            return rslt_badparams;
+        }
+
+        keysize = sizeof(k);
+        if (tpm_get_random(2, k, &keysize) != 0  ||  keysize != sizeof(k)) {
+            log_event(LOG_LEVEL_ERROR, "error: get_random failed\n");
+            return rslt_fail;
+        }
+
+        if (!bc_signature(sig, &siglen, md256, padded, k)) {
+            log_event(LOG_LEVEL_ERROR, "error: signature failed\n");
+            return rslt_fail;
+        }
+
+        log_event(LOG_LEVEL_INFORMATION, "siglen %d: %d\n", i, siglen);
+        pm_append(tag_signature+i, (char *)sig, siglen);
+    }
+
+    return rslt_ok;
 }
 
 
@@ -697,7 +1056,7 @@ static int state_unseal(struct state *pstate)
 }
 
 
-#if 0
+//#if 0
 static void dumphex(uint8_t *bytes, int len)
 {
     int i;
@@ -708,7 +1067,7 @@ static void dumphex(uint8_t *bytes, int len)
     if(len%16)
         log_event(LOG_LEVEL_INFORMATION, "\n");
 }
-#endif
+//#endif
 
 
 static void bchash(void *inptr, uint32_t len, uint8_t *md)
@@ -718,6 +1077,13 @@ static void bchash(void *inptr, uint32_t len, uint8_t *md)
     sha256(_md, sizeof(_md), md);
 }
 
+
+static void bchash160(void *inptr, uint32_t len, uint8_t *md)
+{
+    uint8_t _md[32];
+    sha256(inptr, len, _md);
+    RMD160(_md, sizeof(_md), md);
+}
 
 
 /*

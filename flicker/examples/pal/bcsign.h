@@ -1,4 +1,4 @@
-/* bitcoin.h - definitions for bitcoin.c
+/* bcsign.h - definitions for bcsign.c
  *
  * Copyright (C) 2012 Hal Finney
  * All rights reserved.
@@ -23,49 +23,20 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  */
 
-#ifndef _BITCOIN_H_
-#define _BITCOIN_H_
+#ifndef _BCSIGN_H_
+#define _BCSIGN_H_
 
-enum {
-    tag_cmd = 0x40000000,
-    tag_rslt,
-    tag_blob,
-    tag_daylimit,
-    tag_key,
-    tag_delay,
-    tag_iv,
-    tag_plaintext,
-    tag_ciphertext,
-    tag_pk,
-    tag_signtrans,
-    tag_changeindex,
-    tag_changepk,
-    tag_changectext,
-    tag_inputtrans    = 0x100,
-    tag_signctxt      = 0x200,
-    tag_signiv        = 0x300,
-    tag_signature     = 0x400,
-};
+#define     MAX_VALUE   ((21LL * 1000LL * 1000LL) * (10000LL * 10000LL))
 
-enum {
-    cmd_init,
-    cmd_encrypt,
-    cmd_sign,
-    cmd_decrypt,
-    cmd_keygen_comp,
-    cmd_keygen_uncomp,
-};
+int bc_output_data(uint64_t *pvalue, uint8_t **pscript, size_t *pscriptlen, int nth,
+        uint8_t *tx, size_t txlen);
+extern int bc_inputs(int *pinputs, uint8_t *tx, size_t txlen);
+extern int bc_input_data(int *pindex, uint8_t **phash, int nth, uint8_t *tx, size_t txlen);
+extern int bc_signature_hash(uint8_t *hash, uint8_t *script, size_t scriptlen, int nth,
+        uint8_t *tx, size_t txlen);
+extern int bc_signature(uint8_t *psig, size_t *psiglen, uint8_t *hash, uint8_t *x, uint8_t *k);
 
-enum {
-    rslt_ok,
-    rslt_fail,
-    rslt_badparams,
-    rslt_disallowed,
-    rslt_inconsistentstate,
-};
-
-
-#endif /* _BITCOIN_H_ */
+#endif /* _BCSIGN_H_ */
 
 /*
  * Local variables:
