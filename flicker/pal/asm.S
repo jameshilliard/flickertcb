@@ -665,7 +665,6 @@ ring0_reenter: /* This is the target of the call gate */
 
     SayAsm // 6.
 
-skip_pal:
     /* Calculate the physical base address of the struct cpu_state
      * which contains kernel's saved values */
     movl %ebp, %esi      /* physical base addr of PAL */
