@@ -192,13 +192,19 @@ int flicker_retrievesig(unsigned char *psig)
     unsigned char *sig;
     int siglen;
 
+    printf("flicker_retrievesig %d\n", signum);
+
     pm_init(outbuff, sizeof(outbuff), inbuff, sizeof(inbuff));
     nextOutputPos = nop;
     *(int *)inbuff = fw;
 
-    if ((siglen = pm_get_addr(tag_signature+signum++, (char **)&sig)) <  0)
+    if ((siglen = pm_get_addr(tag_signature+signum++, (char **)&sig)) <  0) {
+        printf("sig not found\n");
         return -1;
-    memcpy(sig, psig, siglen);
+    }
+    memcpy(psig, sig, siglen);
+
+    printf("sig found of length %d\n", siglen);
 
     return siglen;
 }
