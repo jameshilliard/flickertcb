@@ -64,7 +64,7 @@ static int do_encrypt(int cmd);
 static int do_sign(int cmd);
 static int do_decrypt(int cmd);
 static int do_keygen(int cmd);
-static void dumphex(uint8_t *bytes, int len);
+void dumphex(uint8_t *bytes, int len);
 static int get_value(uint64_t *pvalue);
 static int get_change(uint64_t *pchange, uint8_t *tx, int txlen);
 static int get_signatures();
@@ -352,7 +352,7 @@ static int do_decrypt(int cmd)
 
     log_event(LOG_LEVEL_INFORMATION, "work authorized!\n");
 
-    aes_cbc_decrypt(padded, ctxt, inlen, iv, state.dkey);
+    aes_cbc_decrypt(padded, ctxt, inlen/N_BLOCK, iv, state.dkey);
 
     padlen = padded[inlen-1];
     i = 0;
@@ -653,7 +653,7 @@ static int get_change(uint64_t *pchange, uint8_t *tx, int txlen)
     }
 
     bchash(pk, pklen, md256);
-    aes_cbc_decrypt(padded, ctxt, ctxtlen, md256, state.dkey);
+    aes_cbc_decrypt(padded, ctxt, ctxtlen/N_BLOCK, md256, state.dkey);
 
     padlen = padded[ctxtlen-1];
     i = 0;
@@ -741,7 +741,7 @@ static int get_signatures()
             log_event(LOG_LEVEL_ERROR, "error: illegal signature hash\n");
             return rslt_fail;
         }
-        if (i == ninputs-1)
+        if (i == 0)
             dumphex(md256, sizeof(md256));
 
         if ((ctxtlen=pm_get_addr(tag_signctxt+i, (char **)&ctxt)) < 0) {
@@ -764,8 +764,7 @@ static int get_signatures()
             return rslt_badparams;
         }
 
-
-        aes_cbc_decrypt(padded, ctxt, ctxtlen, iv, state.dkey);
+        aes_cbc_decrypt(padded, ctxt, ctxtlen/N_BLOCK, iv, state.dkey);
 
         padlen = padded[ctxtlen-1];
         j = 0;
@@ -1056,18 +1055,16 @@ static int state_unseal(struct state *pstate)
 }
 
 
-//#if 0
-static void dumphex(uint8_t *bytes, int len)
+void dumphex(uint8_t *bytes, int len)
 {
     int i;
     if(!bytes) return;
 
     for (i=0; i<len; i++)
-        log_event(LOG_LEVEL_INFORMATION, "%02x%s", bytes[i], ((i+1)%16)?"":"\n");
-    if(len%16)
+        log_event(LOG_LEVEL_INFORMATION, "%02x%s", bytes[i], ((i+1)%32)?"":"\n");
+    if(len%32)
         log_event(LOG_LEVEL_INFORMATION, "\n");
 }
-//#endif
 
 
 static void bchash(void *inptr, uint32_t len, uint8_t *md)
