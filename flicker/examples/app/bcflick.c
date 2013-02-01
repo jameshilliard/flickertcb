@@ -113,27 +113,17 @@ int flicker_encrypt(unsigned char *ctext, unsigned char const *ptext, unsigned p
     return ctextlen;
 }
 
-unsigned char inbuff[MAX_INPUT_PARAM_SIZE];
-unsigned char outbuff[MAX_OUTPUT_PARAM_SIZE];
-
-extern int nextOutputPos;
-int nop, fw;
-
 void flicker_setchange(int changeindex, unsigned char *pk, unsigned pksize,
         unsigned char *ctext, unsigned ctextsize)
 {
-    printf("flicker_setchange called with index %d\n", changeindex);
-
-    /* pal inbuff is our outbuff */
-    pm_init(outbuff, sizeof(outbuff), inbuff, sizeof(inbuff));
+    /* pal inbuf is our outbuf */
+    pm_init(outbuf, sizeof(outbuf), inbuf, sizeof(inbuf));
 
     pm_append(tag_changeindex, (char *)&changeindex, sizeof(changeindex));
     if (pksize)
         pm_append(tag_changepk, (char *)pk, pksize);
     if (ctextsize)
         pm_append(tag_changectext, (char *)ctext, ctextsize);
-    nop = nextOutputPos;
-    fw = *(int *)inbuff;
 }
 
 static int signum;
@@ -146,12 +136,6 @@ int flicker_sign(unsigned char *txto, int txtolen,
     char palfile[PATH_MAX];
     int rslt;
 
-    pm_init(outbuff, sizeof(outbuff), inbuff, sizeof(inbuff));
-    nextOutputPos = nop;
-    *(int *)inbuff = fw;
-
-    printf("flicker_sign pre-called with input %d/%d\n", nth, ninputs);
-
     if (nth == 0)
         pm_append(tag_signtrans, (char *)txto, txtolen);
 
@@ -159,11 +143,8 @@ int flicker_sign(unsigned char *txto, int txtolen,
     pm_append(tag_signctxt+nth, (char *)ctxt, ctxtlen);
     pm_append(tag_signiv+nth, (char *)iv, 16);
 
-    if (nth+1 < ninputs) {
-        nop = nextOutputPos;
-        fw = *(int *)inbuff;
+    if (nth+1 < ninputs)
         return 0;
-    }
 
     printf("flicker_sign called with %d inputs\n", ninputs);
 
@@ -173,8 +154,8 @@ int flicker_sign(unsigned char *txto, int txtolen,
         return rslt;
     pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
 
-    if (callpal(palfile, inbuff, sizeof(inbuff)-pm_avail(),
-                outbuff, sizeof(outbuff)) < 0) {
+    if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
+                outbuf, sizeof(outbuf)) < 0) {
         fprintf(stderr, "pal call failed for %s\n", palfile);
         return -2;
     }
@@ -192,19 +173,11 @@ int flicker_retrievesig(unsigned char *psig)
     unsigned char *sig;
     int siglen;
 
-    printf("flicker_retrievesig %d\n", signum);
-
-    pm_init(outbuff, sizeof(outbuff), inbuff, sizeof(inbuff));
-    nextOutputPos = nop;
-    *(int *)inbuff = fw;
-
     if ((siglen = pm_get_addr(tag_signature+signum++, (char **)&sig)) <  0) {
-        printf("sig not found\n");
+        printf("sig %d not found\n", signum);
         return -1;
     }
     memcpy(psig, sig, siglen);
-
-    printf("sig found of length %d\n", siglen);
 
     return siglen;
 }
@@ -328,9 +301,8 @@ static void print_output()
     int nout;
     int *outp;
     unsigned long long ts, pts=0;
-    extern char *inputBuffer;
 
-    outp = (int *)inputBuffer;
+    outp = (int *)outbuf;
     nout = *outp++;
     while (nout--) {
         int type = *outp++;

@@ -249,8 +249,6 @@ static int do_encrypt(int cmd)
     }
     pk[0] = 0x04;
     pm_append(tag_pk, (char *)pk, sizeof(pk));
-    //log_event(LOG_LEVEL_INFORMATION, "pk:\n");
-    //dumphex(pk, sizeof(pk));
 
     padlen = N_BLOCK - (inlen % N_BLOCK);
     memcpy(padded, ptxt, inlen);
@@ -321,9 +319,6 @@ static int do_decrypt(int cmd)
 
     ctxt = (uint8_t *)inptr;
 
-    //log_event(LOG_LEVEL_INFORMATION, "ctxt:\n");
-    //dumphex(ctxt, inlen);
-
     tpm_read_current_ticks(2, &ticks);
     if (memcmp(ticks.tick_nonce.nonce, state.tick_nonce.nonce,
                 sizeof(ticks.tick_nonce.nonce)) != 0) {
@@ -376,8 +371,6 @@ static int do_decrypt(int cmd)
     }
     pk[0] = 0x04;
     pm_append(tag_pk, (char *)pk, sizeof(pk));
-    //log_event(LOG_LEVEL_INFORMATION, "pk:\n");
-    //dumphex(pk, sizeof(pk));
 
     pk[0] = 0x02 + (pk[64]&1);
     bchash(pk, 33, md256);
@@ -430,8 +423,6 @@ static int do_keygen(int cmd)
         log_event(LOG_LEVEL_ERROR, "error: sectopub failed\n");
         return rslt_fail;
     }
-    //log_event(LOG_LEVEL_INFORMATION, "pk:\n");
-    //dumphex(pk, sizeof(pk));
 
     pk[0] = 0x04;
     pklen = sizeof(pk);
@@ -462,8 +453,6 @@ static int do_sign(int cmd)
 {
     tpm_current_ticks_t ticks;
     tpm_counter_value_t counter;
-//    char *inptr;
-//    int inlen;
     int interval_secs;
     int day_number;
     uint64_t value;
@@ -500,9 +489,9 @@ static int do_sign(int cmd)
         log_event(LOG_LEVEL_INFORMATION, "new day! day value = %lld\n", state.day_value);
     }
     if ((state.day_value+=value) > state.day_limit) {
-        log_event(LOG_LEVEL_WARNING, "error: day limit exceeded\n");
+        log_event(LOG_LEVEL_WARNING, "error: day limit exceeded: %lld\n", state.day_value);
         interval_secs = (day_number + 1) * 86400 - interval_secs;
-        if (value <= state.day_value)
+        if (value <= state.day_limit)
             pm_append(tag_delay, (char *)&interval_secs, sizeof(interval_secs));
         return rslt_disallowed;
     }
@@ -572,8 +561,6 @@ static int get_value(uint64_t *pvalue)
             log_event(LOG_LEVEL_ERROR, "error: illegal tx\n");
             return rslt_fail;
         }
-
-        log_event(LOG_LEVEL_INFORMATION, "value: %lld\n", value);
 
         sum += value;
         if (sum > MAX_VALUE) {
@@ -703,8 +690,6 @@ static int get_change(uint64_t *pchange, uint8_t *tx, int txlen)
         return rslt_badparams;
     }
 
-    log_event(LOG_LEVEL_INFORMATION, "successfully verified change script\n");
-
     return rslt_ok;
 }
 
@@ -741,8 +726,6 @@ static int get_signatures()
             log_event(LOG_LEVEL_ERROR, "error: illegal signature hash\n");
             return rslt_fail;
         }
-        if (i == 0)
-            dumphex(md256, sizeof(md256));
 
         if ((ctxtlen=pm_get_addr(tag_signctxt+i, (char **)&ctxt)) < 0) {
             log_event(LOG_LEVEL_ERROR, "error: no signctxt\n");
@@ -796,7 +779,6 @@ static int get_signatures()
             return rslt_fail;
         }
 
-        log_event(LOG_LEVEL_INFORMATION, "siglen %d: %d\n", i, siglen);
         pm_append(tag_signature+i, (char *)sig, siglen);
     }
 
