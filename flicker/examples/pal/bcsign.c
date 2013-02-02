@@ -303,37 +303,39 @@ int bc_signature_hash(uint8_t *hash, uint8_t *script, size_t scriptlen, int nth,
     return true;
 }
 
-extern int ecsign(uint8_t *rr, uint8_t *ss, uint8_t *hash, uint8_t *xx, uint8_t *kk);
+extern int ecsign(uint8_t *rr, size_t *rsize, uint8_t *ss, size_t *ssize, uint8_t *hash, uint8_t *xx, uint8_t *kk);
 
 int bc_signature(uint8_t *psig, size_t *psiglen, uint8_t *hash, uint8_t *x, uint8_t *k)
 {
     uint8_t r[32];
     uint8_t s[32];
+    size_t r_size;
+    size_t s_size;
     uint8_t *p = psig;
     uint8_t hashtype = 1;
     int r_pad;
     int s_pad;
 
-    if (ecsign(r, s, hash, x, k) != 0)
+    if (ecsign(r, &r_size, s, &s_size, hash, x, k) != 0)
         return false;
 
     r_pad = !!(r[0] & 0x80);
     s_pad = !!(s[0] & 0x80);
 
     *p++ = 0x30;
-    *p++ = sizeof(r) + 2 + r_pad + sizeof(s) + 2 + s_pad;
+    *p++ = r_size + 2 + r_pad + s_size + 2 + s_pad;
     *p++ = 0x02;
-    *p++ = sizeof(r) + r_pad;
+    *p++ = r_size + r_pad;
     if (r_pad)
         *p++ = 0x00;
-    memcpy(p, r, sizeof(r));
-    p += sizeof(r);
+    memcpy(p, r, r_size);
+    p += r_size;
     *p++ = 0x02;
-    *p++ = sizeof(s) + s_pad;
+    *p++ = s_size + s_pad;
     if (s_pad)
         *p++ = 0x00;
-    memcpy(p, s, sizeof(s));
-    p += sizeof(s);
+    memcpy(p, s, s_size);
+    p += s_size;
     *p++ = hashtype;
 
     *psiglen = p - psig;

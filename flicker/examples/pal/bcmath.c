@@ -522,7 +522,7 @@ int sectopub(uint8_t *sec, uint8_t *pub)
 }
 
 
-int ecsign(uint8_t *rr, uint8_t *ss, uint8_t *hash, uint8_t *xx, uint8_t *kk)
+int ecsign(uint8_t *rr, size_t *rsize, uint8_t *ss, size_t *ssize, uint8_t *hash, uint8_t *xx, uint8_t *kk)
 {
     mp_int _p, *p=&_p;
     mp_int _n, *n=&_n;
@@ -554,10 +554,10 @@ int ecsign(uint8_t *rr, uint8_t *ss, uint8_t *hash, uint8_t *xx, uint8_t *kk)
     if ((rslt=mp_mulmod(s, k, n, s)) != MP_OKAY)
         return rslt;
 
-    memset(rr, 0, PLEN);
-    mp_to_unsigned_bin(R->x, rr+(PLEN-mp_unsigned_bin_size(R->x)));
-    memset(ss, 0, PLEN);
-    mp_to_unsigned_bin(s, ss+(PLEN-mp_unsigned_bin_size(s)));
+    mp_to_unsigned_bin(R->x, rr);
+    *rsize = mp_unsigned_bin_size(R->x);
+    mp_to_unsigned_bin(s, ss);
+    *ssize = mp_unsigned_bin_size(s);
 
     ecclear(R);
     mp_clear_multi(p, n, h, x, k, s, 0);
