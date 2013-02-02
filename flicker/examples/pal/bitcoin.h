@@ -1,6 +1,6 @@
 /* bitcoin.h - definitions for bitcoin.c
  *
- * Copyright (C) 2012 Hal Finney
+ * Copyright (C) 2012-2013 Hal Finney
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
