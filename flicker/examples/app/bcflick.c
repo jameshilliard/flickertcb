@@ -182,6 +182,34 @@ int flicker_retrievesig(unsigned char *psig)
     return siglen;
 }
 
+char *flicker_error()
+{
+    int *prslt;
+    int *pdelay;
+    static char err[100];
+
+    if (pm_get_addr(tag_rslt, (char **)&prslt) != sizeof(*prslt))
+        return NULL;
+
+    switch (*prslt) {
+        case rslt_ok:
+            return NULL;
+        case rslt_fail:
+        case rslt_badparams:
+        case rslt_inconsistentstate:
+            return "flicker failure, try rebooting";
+        case rslt_disallowed:
+            if (pm_get_addr(tag_delay, (char **)&pdelay) != sizeof(*pdelay))
+                return "amount exceeds day limit";
+            if (*pdelay < 360)
+                sprintf(err, "day limit exceeded, try again in %d seconds", *pdelay);
+            else
+                sprintf(err, "day limit exceeded, try again in %.1f hours", (float)*pdelay/3600);
+            return err;
+    }
+}
+
+
 
 int flicker_keygen(int compressed, unsigned char *ctext, unsigned char *pk, const char *datadir)
 {
