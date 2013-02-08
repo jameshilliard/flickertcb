@@ -33,8 +33,6 @@ enum {
     tag_daylimit,
     tag_key,
     tag_delay,
-    tag_iv,
-    tag_plaintext,
     tag_ciphertext,
     tag_pk,
     tag_signtrans,
@@ -49,9 +47,7 @@ enum {
 
 enum {
     cmd_init,
-    cmd_encrypt,
     cmd_sign,
-    cmd_decrypt,
     cmd_keygen_comp,
     cmd_keygen_uncomp,
 };

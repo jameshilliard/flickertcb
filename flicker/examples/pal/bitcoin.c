@@ -60,9 +60,7 @@ uint8_t state2[0];
 };
 
 static int do_init_cmd(int cmd);
-static int do_encrypt(int cmd);
 static int do_sign(int cmd);
-static int do_decrypt(int cmd);
 static int do_keygen(int cmd);
 void dumphex(uint8_t *bytes, int len);
 static int get_value(uint64_t *pvalue);
@@ -90,16 +88,9 @@ int pal_main(void)
     }
 
     cmd = *(int *)inptr;
-    log_event(LOG_LEVEL_INFORMATION, "command: %x\n", cmd);
     switch (cmd) {
         case cmd_init:
             rslt = do_init_cmd(cmd);
-            break;
-        case cmd_encrypt:
-            rslt = do_encrypt(cmd);
-            break;
-        case cmd_decrypt:
-            rslt = do_decrypt(cmd);
             break;
         case cmd_sign:
             rslt = do_sign(cmd);
@@ -197,198 +188,6 @@ static int do_init_cmd(int cmd)
 
 static uint8_t padded[3*N_BLOCK], obuf[3*N_BLOCK];
 static uint8_t md256[32];
-
-static int do_encrypt(int cmd)
-{
-    tpm_counter_value_t counter;
-    char *inptr;
-    int rslt = rslt_ok;
-    int inlen;
-    uint8_t *iv;
-    uint8_t *ptxt;
-    uint8_t pk[65];
-    int padlen;
-
-    if ((rslt = state_unseal(&state)) != rslt_ok)
-        return rslt;
-
-    tpm_read_counter(2, state.counter_id, &counter);
-    if (counter.counter != state.counter) {
-        log_event(LOG_LEVEL_ERROR, "anti rollback counter error: %d should be %d\n",
-                state.counter, counter.counter );
-        return rslt_inconsistentstate;
-    }
-
-    if ((inlen=pm_get_addr(tag_iv, &inptr)) < 0) {
-        log_event(LOG_LEVEL_ERROR, "error: no iv\n");
-        return rslt_badparams;
-    }
-
-    if (inlen != N_BLOCK) {
-        log_event(LOG_LEVEL_ERROR, "error: iv wrong length\n");
-        return rslt_badparams;
-    }
-
-    iv = (uint8_t *)inptr;
-
-    if ((inlen=pm_get_addr(tag_plaintext, &inptr)) < 0) {
-        log_event(LOG_LEVEL_ERROR, "error: no plaintext\n");
-        return rslt_badparams;
-    }
-
-    if (inlen > sizeof(padded) - N_BLOCK) {
-        log_event(LOG_LEVEL_ERROR, "error: plaintext wrong length\n");
-        return rslt_badparams;
-    }
-
-    ptxt = (uint8_t *)inptr;
-
-    if (sectopub(ptxt, pk+1) != 0) {
-        log_event(LOG_LEVEL_ERROR, "error: sectopub failed\n");
-        return rslt_fail;
-    }
-    pk[0] = 0x04;
-    pm_append(tag_pk, (char *)pk, sizeof(pk));
-
-    padlen = N_BLOCK - (inlen % N_BLOCK);
-    memcpy(padded, ptxt, inlen);
-    memset(padded+inlen, padlen, padlen);
-
-    aes_cbc_encrypt(obuf, padded, (inlen+padlen)/N_BLOCK, iv, state.key);
-    pm_append(tag_ciphertext, (char *)obuf, inlen+padlen);
-
-    pk[0] = 0x02 + (pk[64]&1);
-    bchash(pk, 33, md256);
-    if (memcmp(md256, iv, N_BLOCK) != 0) {
-        log_event(LOG_LEVEL_WARNING, "WARNING: IV VERIFY FAILED\n");
-    }
-
-    memset(&state, 0, sizeof(state));
-    memset(padded, 0, sizeof(padded));
-
-    return rslt;
-}
-
-
-static int do_decrypt(int cmd)
-{
-    tpm_current_ticks_t ticks;
-    tpm_counter_value_t counter;
-    char *inptr;
-    int interval_secs;
-    int day_number;
-    int rslt = rslt_ok;
-    int inlen;
-    uint8_t *iv;
-    uint8_t *ctxt;
-    uint8_t pk[65];
-    int padlen;
-    int i;
-
-    if ((rslt = state_unseal(&state)) != rslt_ok)
-        return rslt;
-
-    tpm_read_counter(2, state.counter_id, &counter);
-    if (counter.counter != state.counter) {
-        log_event(LOG_LEVEL_ERROR, "anti rollback counter error: %d should be %d\n",
-                state.counter, counter.counter );
-        return rslt_inconsistentstate;
-    }
-
-    if ((inlen=pm_get_addr(tag_iv, &inptr)) < 0) {
-        log_event(LOG_LEVEL_ERROR, "error: no iv\n");
-        return rslt_badparams;
-    }
-
-    if (inlen != N_BLOCK) {
-        log_event(LOG_LEVEL_ERROR, "error: iv wrong length\n");
-        return rslt_badparams;
-    }
-
-    iv = (uint8_t *)inptr;
-
-    if ((inlen=pm_get_addr(tag_ciphertext, &inptr)) < 0) {
-        log_event(LOG_LEVEL_ERROR, "error: no ciphertext\n");
-        return rslt_badparams;
-    }
-
-    if (inlen > sizeof(padded) || (inlen % N_BLOCK) != 0) {
-        log_event(LOG_LEVEL_ERROR, "error: ciphertext wrong length\n");
-        return rslt_badparams;
-    }
-
-    ctxt = (uint8_t *)inptr;
-
-    tpm_read_current_ticks(2, &ticks);
-    if (memcmp(ticks.tick_nonce.nonce, state.tick_nonce.nonce,
-                sizeof(ticks.tick_nonce.nonce)) != 0) {
-        log_event(LOG_LEVEL_WARNING, "tick timer got reset\n");
-        return rslt_inconsistentstate;
-    }
-
-    interval_secs = (ticks.current_ticks - state.init_ticks)
-        / (1000000 / ticks.tick_rate);
-    day_number = interval_secs / 86400;
-    log_event(LOG_LEVEL_INFORMATION, "day number = %d\n", day_number);
-
-#if 0
-    if (state.day_number != day_number) {
-        state.day_number = day_number;
-        state.day_count = 1;
-        log_event(LOG_LEVEL_INFORMATION, "new day! day count = %d\n", state.day_count);
-    } else if (++state.day_count > state.day_limit) {
-        log_event(LOG_LEVEL_WARNING, "error: day limit exceeded\n");
-        interval_secs = (day_number + 1) * 86400 - interval_secs;
-        pm_append(tag_delay, (char *)&interval_secs, sizeof(interval_secs));
-        return rslt_disallowed;
-    }
-    else log_event(LOG_LEVEL_INFORMATION, "day count = %d\n", state.day_count);
-#endif
-
-    log_event(LOG_LEVEL_INFORMATION, "work authorized!\n");
-
-    aes_cbc_decrypt(padded, ctxt, inlen/N_BLOCK, iv, state.dkey);
-
-    padlen = padded[inlen-1];
-    i = 0;
-    if (padlen > 0 || padlen <= N_BLOCK) {
-        for (; i<padlen; i++) {
-            if (padded[inlen-padlen+i] != padlen)
-                break;
-        }
-    }
-
-    if (i==0 || i<padlen) {
-        log_event(LOG_LEVEL_ERROR, "error: ciphertext wrongly padded\n");
-        return rslt_badparams;
-    }
-
-    pm_append(tag_plaintext, (char *)padded, inlen-padlen);
-
-    if (sectopub(padded, pk+1) != 0) {
-        log_event(LOG_LEVEL_ERROR, "error: sectopub failed\n");
-        return rslt_fail;
-    }
-    pk[0] = 0x04;
-    pm_append(tag_pk, (char *)pk, sizeof(pk));
-
-    pk[0] = 0x02 + (pk[64]&1);
-    bchash(pk, 33, md256);
-    if (memcmp(md256, iv, N_BLOCK) != 0) {
-        log_event(LOG_LEVEL_WARNING, "WARNING: IV VERIFY FAILED\n");
-    }
-
-    tpm_increment_counter(2, state.counter_id, &ctr_authdata, &counter);
-    state.counter = counter.counter;
-
-    if ((rslt = state_seal(&state)) != rslt_ok)
-        return rslt;
-
-    memset(&state, 0, sizeof(state));
-    memset(padded, 0, sizeof(padded));
-
-    return rslt;
-}
 
 
 static int do_keygen(int cmd)

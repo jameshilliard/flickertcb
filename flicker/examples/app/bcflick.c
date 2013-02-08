@@ -40,7 +40,6 @@ unsigned char blob[10000];
 static void print_output(void);
 static int handle_results(const char *datadir);
 static int get_blob(const char *datadir);
-static int check_iv(const unsigned char *iv);
 
 
 int flicker_init(unsigned char *key, int keylen, unsigned long long daylimit, const char *datadir)
@@ -71,47 +70,7 @@ int flicker_init(unsigned char *key, int keylen, unsigned long long daylimit, co
     return rslt;
 }
 
-int flicker_encrypt(unsigned char *ctext, unsigned char const *ptext, unsigned ptsize,
-            unsigned char const *iv, const char *datadir)
-{
-    int cmd = cmd_encrypt;
-    int ctextlen;
-    char *outptr;
-    char palfile[PATH_MAX];
-    int rslt;
-    static int cnt;
-
-    printf("flicker_encrypt called %d times\n", ++cnt);
-
-    sprintf(palfile, PAL_FILE, datadir);
-
-    /* pal inbuf is our outbuf */
-    pm_init(outbuf, sizeof(outbuf), inbuf, sizeof(inbuf));
-
-    if ((rslt = get_blob(datadir)) < 0)
-        return rslt;
-    pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
-    pm_append(tag_iv, (char *)iv, 16);
-    pm_append(tag_plaintext, (char *)ptext, ptsize);
-
-    if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
-                outbuf, sizeof(outbuf)) < 0) {
-        fprintf(stderr, "pal call failed for %s\n", palfile);
-        return -2;
-    }
-    
-    print_output();
-    if ((rslt = handle_results(datadir)) < 0)
-        return rslt;
-
-    if ((ctextlen = pm_get_addr(tag_ciphertext, &outptr)) <  0)
-        return -1;
-    memcpy(ctext, outptr, ctextlen);
-
-    check_iv(iv);
-
-    return ctextlen;
-}
+static int signum;
 
 void flicker_setchange(int changeindex, unsigned char *pk, unsigned pksize,
         unsigned char *ctext, unsigned ctextsize)
@@ -124,9 +83,8 @@ void flicker_setchange(int changeindex, unsigned char *pk, unsigned pksize,
         pm_append(tag_changepk, (char *)pk, pksize);
     if (ctextsize)
         pm_append(tag_changectext, (char *)ctext, ctextsize);
+    signum = 0;
 }
-
-static int signum;
 
 int flicker_sign(unsigned char *txto, int txtolen,
        unsigned char *txfrom, int txfromlen, unsigned char *iv, unsigned char *ctxt, int ctxtlen,
@@ -164,7 +122,6 @@ int flicker_sign(unsigned char *txto, int txtolen,
     if ((rslt = handle_results(datadir)) < 0)
         return rslt;
 
-    signum = 0;
     return rslt;
 }
 
@@ -251,53 +208,6 @@ int flicker_keygen(int compressed, unsigned char *ctext, unsigned char *pk, cons
     memcpy(pk, outptr, pklen);
 
     return ctextlen;
-}
-
-int flicker_decrypt(unsigned char *ptext, unsigned char const *ctext, unsigned ctsize,
-            unsigned char const *iv, const char *datadir)
-{
-    int cmd = cmd_decrypt;
-    int ptextlen;
-    int delay;
-    char palfile[PATH_MAX];
-    char *outptr;
-    int rslt;
-
-    /* pal inbuf is our outbuf */
-    pm_init(outbuf, sizeof(outbuf), inbuf, sizeof(inbuf));
-
-    sprintf(palfile, PAL_FILE, datadir);
-
-    if ((rslt = get_blob(datadir)) < 0)
-        return rslt;
-    pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
-    pm_append(tag_iv, (char *)iv, 16);
-    pm_append(tag_ciphertext, (char *)ctext, ctsize);
-
-    if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
-                outbuf, sizeof(outbuf)) < 0) {
-        fprintf(stderr, "pal call failed for %s\n", palfile);
-        return -2;
-    }
-    
-    print_output();
-
-    if (pm_get_addr(tag_delay, &outptr) > 0) {
-        delay = *(int *)outptr;
-        printf("retry in %d seconds\n", delay);
-        return -1;
-    }
-
-    if ((rslt = handle_results(datadir)) < 0)
-        return rslt;
-
-    if ((ptextlen = pm_get_addr(tag_plaintext, &outptr)) <  0)
-        return -1;
-    memcpy(ptext, outptr, ptextlen);
-
-    check_iv(iv);
-
-    return ptextlen;
 }
 
 static int get_blob(const char *datadir)
@@ -408,45 +318,6 @@ static int handle_results(const char *datadir)
     return rslt;
 }
 
-
-static int check_iv(const unsigned char *iv)
-{
-    unsigned char md[32];
-    unsigned char ivv[32];
-    unsigned char *pkptr;
-    int pklen;
-
-    if ((pklen = pm_get_addr(tag_pk, (char **)&pkptr)) <  0)
-        return -1;
-    if (pklen != 65)
-        return -1;
-
-     SHA256(pkptr, pklen, md);
-     SHA256(md, sizeof(md), ivv);
-     if (memcmp(iv, ivv, sizeof(ivv)) == 0) {
-         printf("hash matches uncompressed\n");
-         return 0;
-     }
-
-     pkptr[0] = 0x02;
-     SHA256(pkptr, 33, md);
-     SHA256(md, sizeof(md), ivv);
-     if (memcmp(iv, ivv, sizeof(ivv)) == 0) {
-         printf("hash matches compressed\n");
-         return 0;
-     }
-
-     pkptr[0] = 0x03;
-     SHA256(pkptr, 33, md);
-     SHA256(md, sizeof(md), ivv);
-     if (memcmp(iv, ivv, sizeof(ivv)) == 0) {
-         printf("hash matches compressed\n");
-         return 0;
-     }
-
-     printf("HASH DOESN'T MATCH\n");
-     return -1;
-}
 
 
 /*
