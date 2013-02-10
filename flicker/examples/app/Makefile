@@ -1,7 +1,7 @@
 CFLAGS := -g -I../pal -I../../pal
 LDFLAGS := -g
 
-all: noio rlimit bitcoin bcflick.a
+all: noio rlimit bcflick.a
 
 params.o: ../../pal/params.c
 	$(CC) -c $< -o $@
@@ -12,9 +12,6 @@ noio: noio.o callpal.o
 rlimit: rlimit.o callpal.o params.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-bitcoin: bitcoin.o callpal.o params.o
-	$(CC) -o $@ $^ $(LDFLAGS)
-	
 bcflick.a: bcflick.o callpal.o params.o
 	$(AR) rcs $@ $^
 
