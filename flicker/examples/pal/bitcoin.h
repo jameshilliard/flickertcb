@@ -1,6 +1,6 @@
 /* bitcoin.h - definitions for bitcoin.c
  *
- * Copyright (C) 2012 Hal Finney
+ * Copyright (C) 2012-2013 Hal Finney
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,16 +33,21 @@ enum {
     tag_daylimit,
     tag_key,
     tag_delay,
-    tag_iv,
-    tag_plaintext,
     tag_ciphertext,
     tag_pk,
+    tag_signtrans,
+    tag_changeindex,
+    tag_changepk,
+    tag_changectext,
+    tag_inputtrans    = 0x100,
+    tag_signctxt      = 0x200,
+    tag_signiv        = 0x300,
+    tag_signature     = 0x400,
 };
 
 enum {
     cmd_init,
-    cmd_encrypt,
-    cmd_decrypt,
+    cmd_sign,
     cmd_keygen_comp,
     cmd_keygen_uncomp,
 };

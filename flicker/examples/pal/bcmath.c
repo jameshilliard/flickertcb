@@ -1,7 +1,7 @@
 /*
  * bcmath.c: math for bitcoin
  *
- * Copyright (C) 2012 Hal Finney
+ * Copyright (C) 2012-2013 Hal Finney
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -316,6 +316,11 @@ static uint8_t p_data[PLEN] = {
     0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xfe,0xff,0xff,0xfc,0x2f,
 };
 
+static uint8_t n_data[PLEN] = {
+    0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xfe,
+    0xba,0xae,0xdc,0xe6,0xaf,0x48,0xa0,0x3b,0xbf,0xd2,0x5e,0x8c,0xd0,0x36,0x41,0x41,
+};
+
 
 static int ecinit(ecpoint *a)
 {
@@ -513,6 +518,49 @@ int sectopub(uint8_t *sec, uint8_t *pub)
 
     ecclear(y);
     mp_clear_multi(p, s, 0);
+    return MP_OKAY;
+}
+
+
+int ecsign(uint8_t *rr, size_t *rsize, uint8_t *ss, size_t *ssize, uint8_t *hash, uint8_t *xx, uint8_t *kk)
+{
+    mp_int _p, *p=&_p;
+    mp_int _n, *n=&_n;
+    mp_int _h, *h=&_h;
+    mp_int _x, *x=&_x;
+    mp_int _k, *k=&_k;
+    mp_int _s, *s=&_s;
+    ecpoint _R, *R=&_R;
+    int rslt;
+
+    ecinit(R);
+    mp_init_multi(p, n, h, x, k, s, 0);
+
+    mp_read_unsigned_bin(p, p_data, PLEN);
+    mp_read_unsigned_bin(n, n_data, PLEN);
+    mp_read_unsigned_bin(h, hash, PLEN);
+    mp_read_unsigned_bin(x, xx, PLEN);
+    mp_read_unsigned_bin(k, kk, PLEN);
+
+    if ((rslt=ecmul_g(k, p, R)) != MP_OKAY)
+        return rslt;
+
+    if ((rslt=mp_mulmod(R->x, x, n, s)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_addmod(s, h, n, s)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_invmod(k, n, k)) != MP_OKAY)
+        return rslt;
+    if ((rslt=mp_mulmod(s, k, n, s)) != MP_OKAY)
+        return rslt;
+
+    mp_to_unsigned_bin(R->x, rr);
+    *rsize = mp_unsigned_bin_size(R->x);
+    mp_to_unsigned_bin(s, ss);
+    *ssize = mp_unsigned_bin_size(s);
+
+    ecclear(R);
+    mp_clear_multi(p, n, h, x, k, s, 0);
     return MP_OKAY;
 }
 

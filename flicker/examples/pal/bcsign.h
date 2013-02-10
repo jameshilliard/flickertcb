@@ -1,5 +1,4 @@
-/*
- * cbcmode.c: implement aes cbc mode
+/* bcsign.h - definitions for bcsign.c
  *
  * Copyright (C) 2012-2013 Hal Finney
  * All rights reserved.
@@ -24,45 +23,20 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  */
 
-#include "aes.h"
-#include "cbcmode.h"
+#ifndef _BCSIGN_H_
+#define _BCSIGN_H_
 
-static unsigned char tbuf[N_BLOCK];
-static unsigned char okey[2*N_BLOCK];
+#define     MAX_VALUE   ((21LL * 1000LL * 1000LL) * (10000LL * 10000LL))
 
+int bc_output_data(uint64_t *pvalue, uint8_t **pscript, size_t *pscriptlen, int nth,
+        uint8_t *tx, size_t txlen);
+extern int bc_inputs(int *pinputs, uint8_t *tx, size_t txlen);
+extern int bc_input_data(int *pindex, uint8_t **phash, int nth, uint8_t *tx, size_t txlen);
+extern int bc_signature_hash(uint8_t *hash, uint8_t *script, size_t scriptlen, int nth,
+        uint8_t *tx, size_t txlen);
+extern int bc_signature(uint8_t *psig, size_t *psiglen, uint8_t *hash, uint8_t *x, uint8_t *k);
 
-static void xor_block(unsigned char *out, const unsigned char *in1, const unsigned char *in2)
-{
-    int n = N_BLOCK;
-    while (n--)
-        *out++ = *in1++ ^ *in2++;
-}
-
-void aes_cbc_encrypt(unsigned char *out, const unsigned char *in, int blocks, 
-       const unsigned char *iv,  const unsigned char *key)
-{
-    while (blocks--) {
-        xor_block(tbuf, in, iv);
-        aes_encrypt_256(tbuf, out, key, okey);
-        iv = out;
-        out += N_BLOCK;
-        in += N_BLOCK;
-    }
-}
-
-void aes_cbc_decrypt(unsigned char *out, const unsigned char *in, int blocks, 
-       const unsigned char *iv,  const unsigned char *key)
-{
-    while (blocks--) {
-        aes_decrypt_256(in, out, key, okey);
-        xor_block(out, out, iv);
-        iv = in;
-        out += N_BLOCK;
-        in += N_BLOCK;
-    }
-}
-
-
+#endif /* _BCSIGN_H_ */
 
 /*
  * Local variables:
