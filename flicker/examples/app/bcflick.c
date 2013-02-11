@@ -30,6 +30,7 @@
 #include <locale.h>
 #include "callpal.h"
 #include "bitcoin.h"
+#include "bcflick.h"
 
 #define PAL_FILE        "%s/bcflick.bin"
 #define BLOB_FILE       "%s/bcflick.blob"
