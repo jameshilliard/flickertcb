@@ -30,6 +30,7 @@
 #include <locale.h>
 #include "callpal.h"
 #include "bitcoin.h"
+#include "bcflick.h"
 
 #define PAL_FILE        "%s/bcflick.bin"
 #define BLOB_FILE       "%s/bcflick.blob"
@@ -95,11 +96,15 @@ int flicker_sign(unsigned char *txto, int txtolen,
     int rslt;
 
     if (nth == 0)
-        pm_append(tag_signtrans, (char *)txto, txtolen);
+        if (pm_append(tag_signtrans, (char *)txto, txtolen) < 0)
+            return -1;
 
-    pm_append(tag_inputtrans+nth, (char *)txfrom, txfromlen);
-    pm_append(tag_signctxt+nth, (char *)ctxt, ctxtlen);
-    pm_append(tag_signiv+nth, (char *)iv, 16);
+    if (pm_append(tag_inputtrans+nth, (char *)txfrom, txfromlen) < 0)
+        return -1;
+    if (pm_append(tag_signctxt+nth, (char *)ctxt, ctxtlen) < 0)
+        return -1;
+    if (pm_append(tag_signiv+nth, (char *)iv, 16) < 0)
+        return -1;
 
     if (nth+1 < ninputs)
         return 0;
@@ -110,7 +115,8 @@ int flicker_sign(unsigned char *txto, int txtolen,
 
     if ((rslt = get_blob(datadir)) < 0)
         return rslt;
-    pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
+    if (pm_append(tag_cmd, (char *)&cmd, sizeof(cmd)) < 0)
+        return -1;
 
     if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
                 outbuf, sizeof(outbuf)) < 0) {
@@ -230,7 +236,9 @@ static int get_blob(const char *datadir)
 
     fclose(blobfile);
 
-    pm_append(tag_blob, (char *)blob, blobsize);
+    if (pm_append(tag_blob, (char *)blob, blobsize) < 0)
+        return -1;
+
     return 0;
 }
 
