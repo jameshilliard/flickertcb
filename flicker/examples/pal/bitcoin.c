@@ -273,8 +273,13 @@ static int do_sign(int cmd)
     tpm_read_current_ticks(2, &ticks);
     if (memcmp(ticks.tick_nonce.nonce, state.tick_nonce.nonce,
                 sizeof(ticks.tick_nonce.nonce)) != 0) {
-        log_event(LOG_LEVEL_WARNING, "tick timer got reset\n");
-        return rslt_inconsistentstate;
+        log_event(LOG_LEVEL_ERROR, "TPM timer got reset; wait 24 hours or boot into a safe mode and reset passphrase\n");
+	memcmp(state.tick_nonce.nonce, ticks.tick_nonce.nonce,
+                sizeof(ticks.tick_nonce.nonce));
+	state.init_ticks = ticks.current_ticks;
+	state.day_number = 0;
+	state.day_value = state.day_limit;
+        goto save_state;
     }
 
     interval_secs = (ticks.current_ticks - state.init_ticks)
@@ -288,7 +293,7 @@ static int do_sign(int cmd)
         log_event(LOG_LEVEL_INFORMATION, "new day! day value = %lld\n", state.day_value);
     }
     if ((state.day_value+=value) > state.day_limit) {
-        log_event(LOG_LEVEL_WARNING, "error: day limit exceeded: %lld\n", state.day_value);
+        log_event(LOG_LEVEL_ERROR, "error: day limit exceeded: %lld\n", state.day_value);
         interval_secs = (day_number + 1) * 86400 - interval_secs;
         if (value <= state.day_limit)
             pm_append(tag_delay, (char *)&interval_secs, sizeof(interval_secs));
@@ -301,6 +306,7 @@ static int do_sign(int cmd)
     if ((rslt = get_signatures()) != rslt_ok)
         return rslt;
 
+save_state:
     tpm_increment_counter(2, state.counter_id, &ctr_authdata, &counter);
     state.counter = counter.counter;
 
