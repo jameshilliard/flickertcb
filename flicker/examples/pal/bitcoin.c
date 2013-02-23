@@ -126,7 +126,7 @@ static int do_init_cmd(int cmd)
     uint32_t keysize;
     int rslt;
 
-#if 1
+#if 0
     extern int testmath(void);
     testmath();
 #endif
@@ -153,6 +153,7 @@ static int do_init_cmd(int cmd)
     if (tpm_get_random(2, state.state2_key, &keysize) != 0
             || keysize != sizeof(state.state2_key)) {
         log_event(LOG_LEVEL_ERROR, "error: get_random failed\n");
+        memset(&state, 0, sizeof(state));
         return rslt_fail;
     }
     record_timestamp("get_random end");
@@ -164,6 +165,7 @@ static int do_init_cmd(int cmd)
 
     if (pm_get_addr(tag_daylimit, &inptr) < 0) {
         log_event(LOG_LEVEL_ERROR, "error: no day limit\n");
+        memset(&state, 0, sizeof(state));
         return rslt_badparams;
     }
 
@@ -177,8 +179,10 @@ static int do_init_cmd(int cmd)
     state.init_ticks = ticks.current_ticks;
     memcpy(state.tick_nonce.nonce, ticks.tick_nonce.nonce, sizeof(state.tick_nonce.nonce));
 
-    if ((rslt = state_seal(&state)) != rslt_ok)
+    if ((rslt = state_seal(&state)) != rslt_ok) {
+        memset(&state, 0, sizeof(state));
         return rslt;
+    }
 
     memset(&state, 0, sizeof(state));
 
@@ -208,6 +212,7 @@ static int do_keygen(int cmd)
     if (counter.counter != state.counter) {
         log_event(LOG_LEVEL_ERROR, "anti rollback counter error: %d should be %d\n",
                 state.counter, counter.counter );
+        memset(&state, 0, sizeof(state));
         return rslt_inconsistentstate;
     }
 
@@ -215,11 +220,13 @@ static int do_keygen(int cmd)
     if (tpm_get_random(2, padded, &keysize) != 0
             || keysize != inlen) {
         log_event(LOG_LEVEL_ERROR, "error: get_random failed\n");
+        memset(&state, 0, sizeof(state));
         return rslt_fail;
     }
 
     if (sectopub(padded, pk+1) != 0) {
         log_event(LOG_LEVEL_ERROR, "error: sectopub failed\n");
+        memset(&state, 0, sizeof(state));
         return rslt_fail;
     }
 
@@ -264,11 +271,14 @@ static int do_sign(int cmd)
     if (counter.counter != state.counter) {
         log_event(LOG_LEVEL_ERROR, "anti rollback counter error: %d should be %d\n",
                 state.counter, counter.counter );
+        memset(&state, 0, sizeof(state));
         return rslt_inconsistentstate;
     }
 
-    if ((rslt = get_value(&value)) != rslt_ok)
+    if ((rslt = get_value(&value)) != rslt_ok) {
+        memset(&state, 0, sizeof(state));
         return rslt;
+    }
 
     tpm_read_current_ticks(2, &ticks);
     if (memcmp(ticks.tick_nonce.nonce, state.tick_nonce.nonce,
@@ -297,21 +307,26 @@ static int do_sign(int cmd)
         interval_secs = (day_number + 1) * 86400 - interval_secs;
         if (value <= state.day_limit)
             pm_append(tag_delay, (char *)&interval_secs, sizeof(interval_secs));
+        memset(&state, 0, sizeof(state));
         return rslt_disallowed;
     }
     else log_event(LOG_LEVEL_INFORMATION, "day value = %lld\n", state.day_value);
 
     log_event(LOG_LEVEL_INFORMATION, "work authorized!\n");
 
-    if ((rslt = get_signatures()) != rslt_ok)
+    if ((rslt = get_signatures()) != rslt_ok) {
+        memset(&state, 0, sizeof(state));
         return rslt;
+    }
 
 save_state:
     tpm_increment_counter(2, state.counter_id, &ctr_authdata, &counter);
     state.counter = counter.counter;
 
-    if ((rslt = state_seal(&state)) != rslt_ok)
+    if ((rslt = state_seal(&state)) != rslt_ok) {
+        memset(&state, 0, sizeof(state));
         return rslt;
+    }
 
     memset(&state, 0, sizeof(state));
 
