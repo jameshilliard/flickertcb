@@ -35,7 +35,9 @@
 #define PAL_FILE        "%s/bcflick.bin"
 #define BLOB_FILE       "%s/bcflick.blob"
 
-unsigned char blob[10000];
+static unsigned char blob[10000];
+static char *palerr;
+static char palerrstr[1000];
 
 /* forward references */
 static void print_output(void);
@@ -58,12 +60,11 @@ int flicker_init(unsigned char *key, int keylen, unsigned long long daylimit, co
     pm_append(tag_daylimit, (char *)&daylimit, sizeof(daylimit));
     pm_append(tag_key, key, 32);
 
-    if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
-                outbuf, sizeof(outbuf)) < 0) {
-        fprintf(stderr, "pal call failed for %s\n", palfile);
+    if ((palerr = callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
+                    outbuf, sizeof(outbuf))) != NULL) {
         return -2;
     }
-    
+
     print_output();
     if ((rslt = handle_results(datadir)) < 0)
         return rslt;
@@ -96,34 +97,41 @@ int flicker_sign(unsigned char *txto, int txtolen,
     int rslt;
 
     if (nth == 0)
-        if (pm_append(tag_signtrans, (char *)txto, txtolen) < 0)
+        if (pm_append(tag_signtrans, (char *)txto, txtolen) < 0) {
+            palerr = "too many inputs to flicker";
             return -1;
+        }
 
-    if (pm_append(tag_inputtrans+nth, (char *)txfrom, txfromlen) < 0)
+    if (pm_append(tag_inputtrans+nth, (char *)txfrom, txfromlen) < 0) {
+        palerr = "too many inputs to flicker";
         return -1;
-    if (pm_append(tag_signctxt+nth, (char *)ctxt, ctxtlen) < 0)
+    }
+    if (pm_append(tag_signctxt+nth, (char *)ctxt, ctxtlen) < 0) {
+        palerr = "too many inputs to flicker";
         return -1;
-    if (pm_append(tag_signiv+nth, (char *)iv, 16) < 0)
+    }
+    if (pm_append(tag_signiv+nth, (char *)iv, 16) < 0) {
+        palerr = "too many inputs to flicker";
         return -1;
+    }
 
     if (nth+1 < ninputs)
         return 0;
-
-    printf("flicker_sign called with %d inputs\n", ninputs);
 
     sprintf(palfile, PAL_FILE, datadir);
 
     if ((rslt = get_blob(datadir)) < 0)
         return rslt;
-    if (pm_append(tag_cmd, (char *)&cmd, sizeof(cmd)) < 0)
+    if (pm_append(tag_cmd, (char *)&cmd, sizeof(cmd)) < 0) {
+        palerr = "too many inputs to flicker";
         return -1;
+    }
 
-    if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
-                outbuf, sizeof(outbuf)) < 0) {
-        fprintf(stderr, "pal call failed for %s\n", palfile);
+    if ((palerr = callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
+                    outbuf, sizeof(outbuf))) != NULL) {
         return -2;
     }
-    
+
     print_output();
     if ((rslt = handle_results(datadir)) < 0)
         return rslt;
@@ -137,7 +145,6 @@ int flicker_retrievesig(unsigned char *psig)
     int siglen;
 
     if ((siglen = pm_get_addr(tag_signature+signum++, (char **)&sig)) <  0) {
-        printf("sig %d not found\n", signum);
         return -1;
     }
     memcpy(psig, sig, siglen);
@@ -151,8 +158,14 @@ char *flicker_error()
     int *pdelay;
     static char err[100];
 
+    if (palerr) {
+        char *pe = palerr;
+        palerr = NULL;
+        return pe;
+    }
+
     if (pm_get_addr(tag_rslt, (char **)&prslt) != sizeof(*prslt))
-        return NULL;
+        return "no results from flicker";
 
     switch (*prslt) {
         case rslt_ok:
@@ -184,8 +197,6 @@ int flicker_keygen(int compressed, unsigned char *ctext, unsigned char *pk, cons
     int rslt;
     static int cnt;
 
-    printf("flicker_keygen called %d times\n", ++cnt);
-
     sprintf(palfile, PAL_FILE, datadir);
 
     /* pal inbuf is our outbuf */
@@ -195,22 +206,25 @@ int flicker_keygen(int compressed, unsigned char *ctext, unsigned char *pk, cons
         return rslt;
     pm_append(tag_cmd, (char *)&cmd, sizeof(cmd));
 
-    if (callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
-                outbuf, sizeof(outbuf)) < 0) {
-        fprintf(stderr, "pal call failed for %s\n", palfile);
+    if ((palerr = callpal(palfile, inbuf, sizeof(inbuf)-pm_avail(),
+                    outbuf, sizeof(outbuf))) != NULL) {
         return -2;
     }
-    
+
     print_output();
     if ((rslt = handle_results(datadir)) < 0)
         return rslt;
 
-    if ((ctextlen = pm_get_addr(tag_ciphertext, &outptr)) <  0)
+    if ((ctextlen = pm_get_addr(tag_ciphertext, &outptr)) <  0) {
+        palerr = "missing output from flicker";
         return -1;
+    }
     memcpy(ctext, outptr, ctextlen);
 
-    if ((pklen = pm_get_addr(tag_pk, &outptr)) <  0)
+    if ((pklen = pm_get_addr(tag_pk, &outptr)) <  0) {
+        palerr = "missing output from flicker";
         return -1;
+    }
     memcpy(pk, outptr, pklen);
 
     return ctextlen;
@@ -225,19 +239,23 @@ static int get_blob(const char *datadir)
     sprintf(blobfilename, BLOB_FILE, datadir);
 
     if ((blobfile = fopen(blobfilename, "rb")) == NULL) {
-        fprintf(stderr, "unable to open blob file %s\n", blobfilename);
+        sprintf(palerrstr, "unable to open blob file %s", blobfilename);
+        palerr = palerrstr;
         return -1;
     }
 
     if ((blobsize = fread(blob, 1, sizeof(blob), blobfile)) == sizeof(blob)) {
-        fprintf(stderr, "blob file too large\n");
+        sprintf(palerrstr, "blob file too large");
+        palerr = palerrstr;
         return -1;
     }
 
     fclose(blobfile);
 
-    if (pm_append(tag_blob, (char *)blob, blobsize) < 0)
+    if (pm_append(tag_blob, (char *)blob, blobsize) < 0) {
+        palerr = "too many inputs to flicker";
         return -1;
+    }
 
     return 0;
 }
@@ -263,7 +281,7 @@ static void print_output()
             ts = *(unsigned long long *)outp;
             printf(":%'13lld  ", (pts==0)?0ll:(ts-pts));
             fwrite((char *)outp+sizeof(long long), 1, size-sizeof(long long), stdout);
-            printf("\n");
+            printf("");
             pts = ts;
 #endif
         }
@@ -281,28 +299,28 @@ static int handle_results(const char *datadir)
     int rslt;
 
     if (pm_get_addr(tag_rslt, &outptr) < 0) {
-        fprintf(stderr, "no result from pal\n");
+        sprintf(palerrstr, "no results from flicker");
+        palerr = palerrstr;
         return -1;
     }
 
     rslt = *(int *)outptr;
-    printf("result code from pal: %d\n", rslt);
 
 #if 0
     ptextlen = pm_get_addr(tag_plaintext, &outptr);
     ctextlen = pm_get_addr(tag_ciphertext, &outptr);
  
     if (ptextlen > 0)
-        printf("plaintext:\n");
+        printf("plaintext:");
  
     if (ctextlen > 0)
-        printf("ciphertext:\n");
+        printf("ciphertext:");
 
     if (ptextlen > 0 || ctextlen > 0) {
         int i;
         for (i=0; i<((ctextlen>0)?ctextlen:ptextlen); i++)
             printf("%02x", ((unsigned char *)outptr)[i]);
-        printf("\n");
+        printf("");
     }
 #endif
 
@@ -312,12 +330,14 @@ static int handle_results(const char *datadir)
         return rslt;
 
     if ((blobfile = fopen(blobfilename, "wb")) == NULL) {
-        fprintf(stderr, "unable to open for writing blob file %s\n", blobfilename);
+        sprintf(palerrstr, "unable to open for writing blob file %s", blobfilename);
+        palerr = palerrstr;
         return -1;
     }
 
     if (fwrite(outptr, 1, blobsize, blobfile) != blobsize) {
-        fprintf(stderr, "unable to write blob file\n");
+        sprintf(palerrstr, "unable to write blob file");
+        palerr = palerrstr;
         return -1;
     }
 
