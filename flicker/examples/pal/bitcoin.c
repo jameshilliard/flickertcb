@@ -269,7 +269,7 @@ static int do_sign(int cmd)
 
     tpm_read_counter(2, state.counter_id, &counter);
     if (counter.counter != state.counter) {
-        log_event(LOG_LEVEL_ERROR, "anti rollback counter error: %d should be %d\n",
+        log_event(LOG_LEVEL_ERROR, "anti rollback counter error: %d should be %d; boot into a safe mode and reset passphrase\n",
                 state.counter, counter.counter );
         memset(&state, 0, sizeof(state));
         return rslt_inconsistentstate;
@@ -312,8 +312,9 @@ static int do_sign(int cmd)
         state.day_value = 0;
         log_event(LOG_LEVEL_INFORMATION, "new day! day value = %lld\n", state.day_value);
     }
+
     if ((state.day_value+=value) > state.day_limit) {
-        log_event(LOG_LEVEL_ERROR, "error: day limit exceeded: %lld\n", state.day_value);
+        log_event(LOG_LEVEL_INFORMATION, "day limit exceeded: %lld\n", state.day_value);
         interval_secs = (day_number + 1) * 86400 - interval_secs;
         if (value <= state.day_limit)
             pm_append(tag_delay, (char *)&interval_secs, sizeof(interval_secs));
@@ -718,10 +719,10 @@ static int find_counter(struct state *pstate)
     free(chandles);
 
     if (tryreboot)
-        log_event(LOG_LEVEL_INFORMATION,
+        log_event(LOG_LEVEL_ERROR,
                 "unable to use anti rollback counter, try rebooting\n");
     else
-        log_event(LOG_LEVEL_INFORMATION,
+        log_event(LOG_LEVEL_ERROR,
                 "no usable anti rollback counter, create one with label: %s\n", MYCOUNTER);
     return rslt_fail;
 }

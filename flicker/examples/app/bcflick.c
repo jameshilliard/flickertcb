@@ -276,6 +276,8 @@ static void print_output()
 
         if (type == 1) {
             fwrite(outp, 1, size, stdout);
+            palerr = (char *)outp;
+            palerr[size-1] = 0;
 #if 0
         } else if (type == 2) {
             ts = *(unsigned long long *)outp;
