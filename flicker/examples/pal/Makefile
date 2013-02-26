@@ -23,7 +23,7 @@ CFLAGS += -fno-jump-tables
 CFLAGS += -fno-stack-protector
 
 CFLAGS += -DnotPERFCRIT
-CFLAGS += -DMIN_LOG_LEVEL=2
+CFLAGS += -DMIN_LOG_LEVEL=4
 
 AFLAGS += -D__ASSEMBLY__
 

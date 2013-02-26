@@ -46,6 +46,7 @@ int main(int ac, char **av)
 {
     int secs;
     char *passphrase;
+    char *err;
     int rslt = 0;
 
     /* pal inbuf is our outbuf */
@@ -67,9 +68,9 @@ int main(int ac, char **av)
         userr(av[0]);
     }
 
-    if (callpal(PAL_FILE, inbuf, sizeof(inbuf)-pm_avail(),
-                outbuf, sizeof(outbuf)) < 0) {
-        fprintf(stderr, "pal call failed for %s\n", PAL_FILE);
+    if ((err = callpal(PAL_FILE, inbuf, sizeof(inbuf)-pm_avail(),
+                    outbuf, sizeof(outbuf))) != NULL) {
+        fputs(err, stderr);
         return 2;
     }
     

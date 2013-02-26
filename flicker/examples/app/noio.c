@@ -34,6 +34,7 @@ static void print_output(void);
 int main(int ac, char **av)
 {
     char *pal;
+    char *err;
 
     if (ac != 2) {
         fprintf(stderr, "Usage: %s palfile\n", av[0]);
@@ -41,8 +42,8 @@ int main(int ac, char **av)
     }
     pal = av[1];
 
-    if (callpal(pal, inbuf, sizeof(int), outbuf, sizeof(outbuf)) < 0) {
-        fprintf(stderr, "pal call failed for %s\n", pal);
+    if ((err = callpal(pal, inbuf, sizeof(int), outbuf, sizeof(outbuf))) != NULL) {
+        fputs(err, stderr);
         return 2;
     }
     

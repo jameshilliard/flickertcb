@@ -47,20 +47,23 @@ void printk(){}
 void dump_bytes(){}
 
 static int copyfile(int fd_from, int fd_to);
-static int one_cpu(int turnon);
+static char *one_cpu(int turnon);
 static int sinit_open();
 
-int callpal(char *palname, void *inbuf, size_t inlen, void *outbuf, size_t outlen)
+char *callpal(char *palname, void *inbuf, size_t inlen, void *outbuf, size_t outlen)
 {
     int fd_ctrl=-1, fd_data=-1;
     int fd=-1;
+    static char estr[250];
+    char *err;
 
-    one_cpu(0);
+    if ((err = one_cpu(0)) != NULL)
+        return err;
 
     fd_ctrl = open(FLICKER_CTRL, O_WRONLY);
     fd_data = open(FLICKER_DATA, O_RDWR);
     if (fd_ctrl<0 || fd_data<0) {
-        fprintf(stderr, "flicker is not running\n");
+        sprintf(estr, "flicker is not running\n");
         goto error;
     }
 
@@ -68,7 +71,7 @@ int callpal(char *palname, void *inbuf, size_t inlen, void *outbuf, size_t outle
     if (fd >= 0) {
         write(fd_ctrl, "A", 1);
         if (copyfile(fd, fd_data) < 0) {
-            fprintf(stderr, "error transferring sinit file\n");
+            sprintf(estr, "error transferring sinit file\n");
             goto error;
         }
         close(fd);
@@ -78,14 +81,14 @@ int callpal(char *palname, void *inbuf, size_t inlen, void *outbuf, size_t outle
 
     fd = open(palname, O_RDONLY);
     if (fd < 0) {
-        fprintf(stderr, "error opening file %s\n", palname);
+        sprintf(estr, "error opening file %s\n", palname);
         goto error;
     }
 
     write(fd_ctrl, "M", 1);
     lseek(fd_data, 0, SEEK_SET);
     if (copyfile(fd, fd_data) < 0) {
-        fprintf(stderr, "error transferring file %s\n", palname);
+        sprintf(estr, "error transferring file %s\n", palname);
         goto error;
     }
     close(fd);
@@ -97,7 +100,7 @@ int callpal(char *palname, void *inbuf, size_t inlen, void *outbuf, size_t outle
     while (inlen > 0) {
         int n = (inlen > PAGE_SIZE) ? PAGE_SIZE : inlen;
         if (write(fd_data, inbuf, n) < n) {
-            fprintf(stderr, "error transferring input data\n");
+            sprintf(estr, "error transferring flicker input data\n");
             goto error;
         }
         inbuf += n;
@@ -112,7 +115,7 @@ int callpal(char *palname, void *inbuf, size_t inlen, void *outbuf, size_t outle
     while (outlen > 0) {
         int n = (outlen > PAGE_SIZE) ? PAGE_SIZE : outlen;
         if (read(fd_data, outbuf, n) < n) {
-            fprintf(stderr, "error transferring output data\n");
+            sprintf(estr, "error transferring flicker output data\n");
             goto error;
         }
         outbuf += n;
@@ -120,8 +123,9 @@ int callpal(char *palname, void *inbuf, size_t inlen, void *outbuf, size_t outle
     }
 
     close(fd_ctrl); close(fd_data);
-    one_cpu(1);
-    return 0;
+    if ((err = one_cpu(1)) != NULL)
+        return err;
+    return NULL;
 
 error:
     if (fd_ctrl >= 0)
@@ -131,7 +135,7 @@ error:
     if (fd >= 0)
         close(fd);
     one_cpu(1);
-    return -1;
+    return estr;
 }
 
 
@@ -151,7 +155,7 @@ static int copyfile(int fd_from, int fd_to)
     return 0;
 }
 
-static int one_cpu(int turnon)
+static char *one_cpu(int turnon)
 {
     DIR *dir;
     struct dirent *dirent;
@@ -160,11 +164,12 @@ static int one_cpu(int turnon)
     char new_state = turnon ? '1' : '0';
     char cur_state;
     char cpu_online[sizeof(CPU_CTRL)+30];
+    static char estr[sizeof(CPU_CTRL)+250];
 
     dir = opendir(CPU_CTRL);
     if (dir == NULL) {
-        fprintf(stderr, "one_cpu error\n");
-        return -1;
+        sprintf(estr, "one_cpu error\n");
+        return estr;
     }
 
     while ((dirent = readdir(dir)) != NULL) {
@@ -172,14 +177,14 @@ static int one_cpu(int turnon)
                 && cpunum > 0) {
             sprintf(cpu_online, CPU_CTRL "/cpu%d/online", cpunum);
             if ((fd = open(cpu_online, O_RDWR)) < 0) {
-                fprintf(stderr, "error opening %s\n", cpu_online);
-                return -1;
+                sprintf(estr, "error opening %s\n", cpu_online);
+                return estr;
             }
 
             if (read(fd, &cur_state, 1) != 1) {
-                fprintf(stderr, "error reading %s\n", cpu_online);
+                sprintf(estr, "error reading %s\n", cpu_online);
                 close(fd);
-                return -1;
+                return estr;
             }
 
             if (cur_state == new_state) {
@@ -188,29 +193,29 @@ static int one_cpu(int turnon)
             }
 
             if (write(fd, &new_state, 1) != 1) {
-                fprintf(stderr, "error writing %s\n", cpu_online);
+                sprintf(estr, "error writing %s\n", cpu_online);
                 close(fd);
-                return -1;
+                return estr;
             }
 
             lseek(fd, 0, SEEK_SET);
             if (read(fd, &cur_state, 1) != 1) {
-                fprintf(stderr, "error reading %s\n", cpu_online);
+                sprintf(estr, "error reading %s\n", cpu_online);
                 close(fd);
-                return -1;
+                return estr;
             }
 
             if (cur_state != new_state) {
-                fprintf(stderr, "error changing state for %s\n", cpu_online);
+                sprintf(estr, "error changing state for %s\n", cpu_online);
                 close(fd);
-                return -1;
+                return estr;
             }
             close(fd);
         }
     }
 
     closedir(dir);
-    return 0;
+    return NULL;
 }
 
 static int sinit_open()
