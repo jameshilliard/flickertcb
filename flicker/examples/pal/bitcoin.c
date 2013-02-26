@@ -284,12 +284,22 @@ static int do_sign(int cmd)
     if (memcmp(ticks.tick_nonce.nonce, state.tick_nonce.nonce,
                 sizeof(ticks.tick_nonce.nonce)) != 0) {
         log_event(LOG_LEVEL_ERROR, "TPM timer got reset; wait 24 hours or boot into a safe mode and reset passphrase\n");
-	memcmp(state.tick_nonce.nonce, ticks.tick_nonce.nonce,
+        memcmp(state.tick_nonce.nonce, ticks.tick_nonce.nonce,
                 sizeof(ticks.tick_nonce.nonce));
-	state.init_ticks = ticks.current_ticks;
-	state.day_number = 0;
-	state.day_value = state.day_limit;
-        goto save_state;
+        state.init_ticks = ticks.current_ticks;
+        state.day_number = 0;
+        state.day_value = state.day_limit;
+        if (tpm_increment_counter(2, state.counter_id, &ctr_authdata, &counter) != 0) {
+            log_event(LOG_LEVEL_ERROR, "unable to use anti rollback counter, try rebooting\n");
+            return rslt_inconsistentstate;
+        }
+        state.counter = counter.counter;
+        if ((rslt = state_seal(&state)) != rslt_ok) {
+            memset(&state, 0, sizeof(state));
+            return rslt;
+        }
+        memset(&state, 0, sizeof(state));
+        return rslt_inconsistentstate;
     }
 
     interval_secs = (ticks.current_ticks - state.init_ticks)
@@ -314,16 +324,18 @@ static int do_sign(int cmd)
 
     log_event(LOG_LEVEL_INFORMATION, "work authorized!\n");
 
-    if ((rslt = get_signatures()) != rslt_ok) {
+    if (tpm_increment_counter(2, state.counter_id, &ctr_authdata, &counter) != 0) {
+        log_event(LOG_LEVEL_ERROR, "unable to use anti rollback counter, try rebooting\n");
+        return rslt_inconsistentstate;
+    }
+    state.counter = counter.counter;
+
+    if ((rslt = state_seal(&state)) != rslt_ok) {
         memset(&state, 0, sizeof(state));
         return rslt;
     }
 
-save_state:
-    tpm_increment_counter(2, state.counter_id, &ctr_authdata, &counter);
-    state.counter = counter.counter;
-
-    if ((rslt = state_seal(&state)) != rslt_ok) {
+    if ((rslt = get_signatures()) != rslt_ok) {
         memset(&state, 0, sizeof(state));
         return rslt;
     }
