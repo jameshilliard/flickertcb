@@ -190,7 +190,7 @@ static int do_init_cmd(int cmd)
 }
 
 
-static uint8_t padded[3*N_BLOCK], obuf[3*N_BLOCK];
+static uint8_t obuf[3*N_BLOCK];
 static uint8_t md256[32];
 
 
@@ -201,12 +201,15 @@ static int do_keygen(int cmd)
     int inlen;
     uint8_t pk[65];
     uint8_t *iv;
+    uint8_t padded[3*N_BLOCK];
     uint32_t keysize;
     int padlen;
     int pklen;
 
-    if ((rslt = state_unseal(&state)) != rslt_ok)
+    if ((rslt = state_unseal(&state)) != rslt_ok) {
+        memset(&state, 0, sizeof(state));
         return rslt;
+    }
 
     tpm_read_counter(2, state.counter_id, &counter);
     if (counter.counter != state.counter) {
@@ -249,7 +252,6 @@ static int do_keygen(int cmd)
     pm_append(tag_ciphertext, (char *)obuf, inlen+padlen);
 
     memset(&state, 0, sizeof(state));
-    memset(padded, 0, sizeof(padded));
 
     return rslt;
 }
@@ -264,8 +266,10 @@ static int do_sign(int cmd)
     uint64_t value;
     int rslt = rslt_ok;
 
-    if ((rslt = state_unseal(&state)) != rslt_ok)
+    if ((rslt = state_unseal(&state)) != rslt_ok) {
+        memset(&state, 0, sizeof(state));
         return rslt;
+    }
 
     tpm_read_counter(2, state.counter_id, &counter);
     if (counter.counter != state.counter) {
@@ -438,6 +442,7 @@ static int get_change(uint64_t *pchange, uint8_t *tx, int txlen)
     size_t scriptlen;
     char *inptr;
     int inlen;
+    uint8_t padded[3*N_BLOCK];
     int padlen;
     int i;
 
@@ -540,6 +545,7 @@ static int get_signatures()
     int ctxtlen;
     uint8_t *iv;
     int ivlen;
+    uint8_t padded[3*N_BLOCK];
     int padlen;
     uint32_t keysize;
     uint8_t k[32];
